@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldAlert,
   Lock,
@@ -18,6 +18,7 @@ export const AdminAuthModal: React.FC = () => {
   const isOpen = useJLStore((s) => s.isAdminAuthModalOpen);
   const setOpen = useJLStore((s) => s.setAdminAuthModalOpen);
   const setAuthenticated = useJLStore((s) => s.setAdminAuthenticated);
+  const activeMode = useJLStore((s) => s.activeMode);
   const setActiveMode = useJLStore((s) => s.setActiveMode);
 
   const [password, setPassword] = useState('');
@@ -25,6 +26,26 @@ export const AdminAuthModal: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  const handleClose = React.useCallback(() => {
+    setOpen(false);
+    setPassword('');
+    setErrorMessage(null);
+    if (activeMode === 'ADMIN') {
+      setActiveMode('EXPLORE');
+    }
+  }, [setOpen, activeMode, setActiveMode]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, handleClose]);
 
   if (!isOpen) return null;
 
@@ -55,7 +76,7 @@ export const AdminAuthModal: React.FC = () => {
           setActiveMode('ADMIN');
           setPassword('');
           setSuccess(false);
-        }, 400);
+        }, 300);
       } else {
         setErrorMessage(data.error || 'Ungültiges Admin-Passwort.');
       }
@@ -66,15 +87,19 @@ export const AdminAuthModal: React.FC = () => {
     }
   };
 
-  const handleClose = () => {
-    setOpen(false);
-    setPassword('');
-    setErrorMessage(null);
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-purple-500/30 bg-zinc-950/95 p-6 shadow-[0_0_60px_rgba(168,85,247,0.25)] text-zinc-100">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          handleClose();
+        }
+      }}
+      className="pointer-events-auto fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200 cursor-pointer"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-md overflow-hidden rounded-2xl border border-purple-500/30 bg-zinc-950/95 p-6 shadow-[0_0_60px_rgba(168,85,247,0.25)] text-zinc-100 cursor-default"
+      >
         {/* Glow ambient background accent */}
         <div className="pointer-events-none absolute -top-24 -left-24 h-48 w-48 rounded-full bg-purple-600/20 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-24 -right-24 h-48 w-48 rounded-full bg-cyan-600/15 blur-3xl" />
@@ -101,6 +126,7 @@ export const AdminAuthModal: React.FC = () => {
             type="button"
             onClick={handleClose}
             className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white transition"
+            title="Schließen (Esc)"
           >
             <X className="h-4 w-4" />
           </button>
@@ -191,10 +217,13 @@ export const AdminAuthModal: React.FC = () => {
           </div>
         </form>
 
-        {/* Tactical helper footer */}
-        <div className="mt-5 border-t border-white/5 pt-3 font-mono text-[10px] text-zinc-400 flex items-center justify-between">
-          <span>STATUS: GESCHÜTZT</span>
-          <span>DEV-KEY: &apos;jumpleague-admin&apos;</span>
+        {/* Tactical status footer */}
+        <div className="mt-5 border-t border-white/5 pt-3 font-mono text-[10px] text-zinc-500 flex items-center justify-between">
+          <span className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span>STATUS: GESICHERT</span>
+          </span>
+          <span>ZUGRIFFSSTUFE: LEVEL 4</span>
         </div>
       </div>
     </div>
