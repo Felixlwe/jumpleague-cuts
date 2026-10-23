@@ -9,6 +9,7 @@ import { FilterDrawer } from '@/components/hud/FilterDrawer';
 import { RightCutPanel } from '@/components/hud/RightCutPanel';
 import { SubmissionModal } from '@/components/hud/SubmissionModal';
 import { AdminReviewPanel } from '@/components/hud/AdminReviewPanel';
+import { AdminAuthModal } from '@/components/hud/AdminAuthModal';
 import { BottomToolbar } from '@/components/hud/BottomToolbar';
 import { useJLStore } from '@/store/useJLStore';
 import { DIAMOND_BOOTS_DATA_URI } from '@/constants/diamondBootsAsset';
@@ -63,6 +64,9 @@ function ClientModuleDetailHud() {
 
       {/* Bottom Floating Toolbar: Camera Reset, Cut-Lines Toggle, Cut einreichen & Admin-Modus */}
       <BottomToolbar />
+
+      {/* Admin Security Clearance Password Modal */}
+      <AdminAuthModal />
     </div>
   );
 }

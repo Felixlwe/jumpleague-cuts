@@ -9,6 +9,12 @@ import {
   Vector3D,
 } from '@/types/jumpleague';
 import { INITIAL_CUTS, INITIAL_MODULES } from '@/lib/mockModuleGenerator';
+import {
+  fetchCutsFromSupabase,
+  insertCutIntoSupabase,
+  updateCutInSupabase,
+  deleteCutFromSupabase,
+} from '@/lib/supabase';
 
 export type AppMode = 'EXPLORE' | 'SUBMIT' | 'ADMIN';
 export type BlockPickStage = 'START' | 'MID' | 'END';
@@ -97,6 +103,11 @@ export interface JLStoreState {
   draftCameraPosition: Vector3D | null;
   draftCameraTarget: Vector3D | null;
 
+  // Admin & Cloud Database State
+  isAdminAuthenticated: boolean;
+  isAdminAuthModalOpen: boolean;
+  isSyncingWithSupabase: boolean;
+
   // Core Actions
   selectModule: (moduleId: string) => void;
   selectCut: (cutId: string | null) => void;
@@ -108,6 +119,9 @@ export interface JLStoreState {
   resetCamera: () => void;
   triggerCameraReset: () => void;
   setActiveMode: (mode: AppMode) => void;
+  setAdminAuthenticated: (auth: boolean) => void;
+  setAdminAuthModalOpen: (open: boolean) => void;
+  syncCutsFromSupabase: () => Promise<void>;
 
   // Filter Actions
   updateFilters: (partial: Partial<FilterState>) => void;
@@ -185,6 +199,11 @@ export const useJLStore = create<JLStoreState>()(
       activeMode: 'EXPLORE',
       filters: DEFAULT_FILTERS,
 
+      // Admin & Supabase Sync State
+      isAdminAuthenticated: false,
+      isAdminAuthModalOpen: false,
+      isSyncingWithSupabase: false,
+
       liveCameraPosition: { x: 18, y: 14, z: 10 },
       liveCameraTarget: { x: 0, y: 4, z: 22 },
 
@@ -261,6 +280,13 @@ export const useJLStore = create<JLStoreState>()(
 
       setActiveMode: (mode) => {
         const current = get();
+
+        // Security Gate: Admin Mode requires verified password
+        if (mode === 'ADMIN' && !current.isAdminAuthenticated) {
+          set({ isAdminAuthModalOpen: true });
+          return;
+        }
+
         if (mode === 'SUBMIT') {
           set({
             activeMode: mode,
@@ -290,6 +316,38 @@ export const useJLStore = create<JLStoreState>()(
             activeMode: mode,
             hoveredBlock: null,
           });
+        }
+      },
+
+      setAdminAuthenticated: (auth) => set({ isAdminAuthenticated: auth }),
+
+      setAdminAuthModalOpen: (open) => set({ isAdminAuthModalOpen: open }),
+
+      syncCutsFromSupabase: async () => {
+        set({ isSyncingWithSupabase: true });
+        try {
+          const supabaseCuts = await fetchCutsFromSupabase();
+          if (supabaseCuts && supabaseCuts.length > 0) {
+            set((state) => {
+              const cutMap = new Map<string, Cut>();
+              // 1. Initial base mock cuts
+              INITIAL_CUTS.forEach((c) => cutMap.set(c.id, c));
+              // 2. Existing local storage cuts
+              state.cuts.forEach((c) => cutMap.set(c.id, c));
+              // 3. Supabase cuts (take precedence)
+              supabaseCuts.forEach((c) => cutMap.set(c.id, c));
+
+              return {
+                cuts: Array.from(cutMap.values()),
+                isSyncingWithSupabase: false,
+              };
+            });
+          } else {
+            set({ isSyncingWithSupabase: false });
+          }
+        } catch (err) {
+          console.warn('[Store] Could not sync cuts with Supabase:', err);
+          set({ isSyncingWithSupabase: false });
         }
       },
 
@@ -478,38 +536,49 @@ export const useJLStore = create<JLStoreState>()(
           draftCameraTarget: null,
           selectedCutId: newCut.id,
         }));
+
+        // Persist directly to Supabase cloud database
+        void insertCutIntoSupabase(newCut);
+
         return newCut;
       },
 
-      updateCut: (cutId, partial) =>
+      updateCut: (cutId, partial) => {
         set((state) => ({
           cuts: state.cuts.map((c) =>
             c.id === cutId ? { ...c, ...partial } : c
           ),
-        })),
+        }));
+        void updateCutInSupabase(cutId, partial);
+      },
 
-      approveCut: (cutId, overrides) =>
+      approveCut: (cutId, overrides) => {
+        const payload: Partial<Cut> = { ...(overrides ?? {}), status: 'APPROVED' };
         set((state) => ({
           cuts: state.cuts.map((c) =>
-            c.id === cutId
-              ? { ...c, ...(overrides ?? {}), status: 'APPROVED' }
-              : c
+            c.id === cutId ? { ...c, ...payload } : c
           ),
-        })),
+        }));
+        void updateCutInSupabase(cutId, payload);
+      },
 
-      rejectCut: (cutId) =>
+      rejectCut: (cutId) => {
         set((state) => ({
           cuts: state.cuts.map((c) =>
             c.id === cutId ? { ...c, status: 'REJECTED' } : c
           ),
-        })),
+        }));
+        void updateCutInSupabase(cutId, { status: 'REJECTED' });
+      },
 
-      deleteCut: (cutId) =>
+      deleteCut: (cutId) => {
         set((state) => ({
           cuts: state.cuts.filter((c) => c.id !== cutId),
           selectedCutId:
             state.selectedCutId === cutId ? null : state.selectedCutId,
-        })),
+        }));
+        void deleteCutFromSupabase(cutId);
+      },
 
       resetStoreToDefaults: () =>
         set({
@@ -532,3 +601,11 @@ export const useJLStore = create<JLStoreState>()(
     }
   )
 );
+
+// Auto-sync cuts from Supabase cloud database upon client load
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    void useJLStore.getState().syncCutsFromSupabase();
+  }, 50);
+}
+

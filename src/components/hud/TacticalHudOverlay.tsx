@@ -6,6 +6,7 @@ import { FilterAndCutListPanel } from './FilterAndCutListPanel';
 import { CutInspectorPanel } from './CutInspectorPanel';
 import { CutSubmissionPanel } from './CutSubmissionPanel';
 import { AdminReviewPanel } from './AdminReviewPanel';
+import { AdminAuthModal } from './AdminAuthModal';
 import { BottomHudBar } from './BottomHudBar';
 import { useJumpLeagueStore } from '@/store/useJumpLeagueStore';
 
@@ -36,6 +37,9 @@ export const TacticalHudOverlay: React.FC = () => {
 
       {/* Bottom Telemetry & Color Legend Bar */}
       <BottomHudBar />
+
+      {/* Admin Auth Modal */}
+      <AdminAuthModal />
     </div>
   );
 };
