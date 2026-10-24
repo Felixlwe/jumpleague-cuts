@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { useEffect, useState } from 'react';
+import { resolveBlockTextureName } from '@/lib/minecraftTextures';
 
 /**
  * Neighbor connectivity map for auto-healing missing properties
@@ -240,6 +241,17 @@ function matchWhenCondition(when: unknown, props: Record<string, string>): boole
   return true;
 }
 
+function extractTextureSprite(val: unknown): string {
+  if (!val) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object' && val !== null) {
+    if ('sprite' in val && typeof (val as { sprite: unknown }).sprite === 'string') {
+      return (val as { sprite: string }).sprite;
+    }
+  }
+  return '';
+}
+
 /**
  * Resolves the parent chain and collects textures and elements
  */
@@ -263,22 +275,29 @@ function resolveModelDefinition(
     currId = modelObj.parent ? String(modelObj.parent).replace(/^minecraft:/, '') : null;
   }
 
-  const textures: Record<string, string> = {};
+  const textures: Record<string, unknown> = {};
   for (const m of chain) {
     if (m.textures) {
       Object.assign(textures, m.textures);
     }
   }
 
-  // Resolve texture reference variables (#all, #side, etc.)
+  // Resolve texture reference variables (#all, #side, etc.) and unpack modern sprite objects
+  const resolvedTextures: Record<string, string> = {};
   for (const k of Object.keys(textures)) {
-    let val = textures[k];
+    let val: unknown = textures[k];
     let depth = 0;
-    while (typeof val === 'string' && val.startsWith('#') && depth < 10) {
-      val = textures[val.slice(1)];
-      depth++;
+    while (depth < 10) {
+      const spriteStr = extractTextureSprite(val);
+      if (spriteStr.startsWith('#')) {
+        val = textures[spriteStr.slice(1)];
+        depth++;
+      } else {
+        val = spriteStr;
+        break;
+      }
     }
-    textures[k] = typeof val === 'string' ? val.replace(/^minecraft:/, '') : String(val || '');
+    resolvedTextures[k] = extractTextureSprite(val).replace(/^minecraft:/, '');
   }
 
   let elements: RawMcmetaElement[] | null = null;
@@ -289,7 +308,7 @@ function resolveModelDefinition(
     }
   }
 
-  return { textures, elements };
+  return { textures: resolvedTextures, elements };
 }
 
 /**
@@ -341,6 +360,85 @@ function rotatePoint(
   }
 
   return [nx + ox, ny + oy, nz + oz];
+}
+
+/**
+ * Resolves the UV rectangle for a block's face from the misode/mcmeta texture atlas.
+ * Strictly guarantees that the texture matches the block's actual name and never defaults to oak planks
+ * unless the block actually belongs to the oak wood family.
+ */
+export function getAtlasUvBox(
+  texName: string,
+  blockName: string,
+  atlasData: Record<string, [number, number, number, number]>
+): [number, number, number, number] {
+  // 1. Direct candidate lookups from the model texture identifier
+  const cleanTex = texName.replace(/^minecraft:/, '').replace(/^block\//, '');
+  const texCandidates = [
+    `block/${cleanTex}`,
+    cleanTex,
+    `minecraft:block/${cleanTex}`,
+    `item/${cleanTex}`,
+    `entity/${cleanTex}`,
+  ];
+  for (const c of texCandidates) {
+    if (atlasData[c]) return atlasData[c];
+  }
+
+  // 2. Resolve based on block name (e.g. stairs, slabs, walls, fences, pressure plates, panes)
+  const cleanBlock = blockName.replace(/^minecraft:/, '').split('[')[0].trim();
+  const resolved = resolveBlockTextureName(cleanBlock);
+  const blockCandidates = [
+    `block/${cleanBlock}`,
+    `block/${resolved}`,
+    cleanBlock,
+    resolved,
+    `block/${cleanBlock}_top`,
+    `block/${cleanBlock}_side`,
+    `block/${cleanBlock}_front`,
+    `block/${cleanBlock}_bottom`,
+    `block/${resolved}_top`,
+    `block/${resolved}_side`,
+    `block/${resolved}_front`,
+    `block/${cleanBlock}_planks`,
+    `block/${cleanBlock}_bricks`,
+    `block/${cleanBlock}_wool`,
+    `block/${cleanBlock}_concrete`,
+    `block/${cleanBlock}_terracotta`,
+  ];
+  for (const c of blockCandidates) {
+    if (atlasData[c]) return atlasData[c];
+  }
+
+  // 3. Special cases: chain, redstone wire
+  if (cleanBlock === 'chain' && atlasData['block/iron_chain']) {
+    return atlasData['block/iron_chain'];
+  }
+  if (cleanBlock.includes('redstone') && atlasData['block/redstone_dust_dot']) {
+    return atlasData['block/redstone_dust_dot'];
+  }
+
+  // 4. Exact suffix or prefix search across all block texture keys in the atlas
+  for (const key of Object.keys(atlasData)) {
+    if (
+      key.startsWith('block/') &&
+      (key === `block/${cleanBlock}` ||
+        key.endsWith(`/${cleanBlock}`) ||
+        key === `block/${resolved}` ||
+        key.endsWith(`/${resolved}`))
+    ) {
+      return atlasData[key];
+    }
+  }
+
+  // 5. Material family fallback: never use oak_planks unless it is oak
+  if (cleanBlock.includes('oak')) {
+    return atlasData['block/oak_planks'] || [0, 0, 16, 16];
+  }
+  if (cleanBlock.includes('wood') || cleanBlock.includes('plank')) {
+    return atlasData['block/spruce_planks'] || atlasData['block/oak_planks'] || [0, 0, 16, 16];
+  }
+  return atlasData['block/stone'] || atlasData['block/smooth_stone'] || [0, 0, 16, 16];
 }
 
 /**
@@ -466,6 +564,11 @@ export function buildBlockGeometry(
         }
       }
 
+      // Fallback: if properties were missing or did not match any variant, pick the first available variant
+      if (!bestMatch && Object.keys(def.variants).length > 0) {
+        bestMatch = Object.values(def.variants)[0];
+      }
+
       const chosen = Array.isArray(bestMatch) ? bestMatch[0] : bestMatch;
       if (chosen && chosen.model) {
         appliedModels.push(chosen);
@@ -479,6 +582,15 @@ export function buildBlockGeometry(
           if (applied && applied.model) {
             appliedModels.push(applied);
           }
+        }
+      }
+
+      // Fallback for multipart blocks with empty connections: render primary base / post
+      if (appliedModels.length === 0 && def.multipart.length > 0) {
+        const firstPart = def.multipart[0];
+        const applied = Array.isArray(firstPart.apply) ? firstPart.apply[0] : firstPart.apply;
+        if (applied && applied.model) {
+          appliedModels.push(applied);
         }
       }
     }
@@ -505,7 +617,7 @@ export function buildBlockGeometry(
 
     const { textures, elements } = resolveModelDefinition(modelId, mcmeta.models);
 
-    // Spezialfälle: builtin/entity (Schilder & Köpfe)
+    // Spezialfälle: builtin/entity (Schilder, Banner, Truhen, Flüssigkeiten & Köpfe)
     let finalElements = elements;
 
     if (!finalElements || finalElements.length === 0) {
@@ -559,6 +671,135 @@ export function buildBlockGeometry(
           },
         ];
         textures['wood'] = `block/${wood}_planks`;
+      } else if (name.includes('banner')) {
+        // Banner (Standing & Wall)
+        const colorMatch = name.match(/^([a-z_]+?)(_wall)?_banner$/);
+        const color = colorMatch ? colorMatch[1] : 'white';
+        const isWall = name.includes('wall') || props.facing;
+        if (isWall) {
+          finalElements = [
+            {
+              from: [0, 14, 14],
+              to: [16, 16, 16],
+              faces: {
+                down: { texture: `#wood` },
+                up: { texture: `#wood` },
+                north: { texture: `#wood` },
+                south: { texture: `#wood` },
+                west: { texture: `#wood` },
+                east: { texture: `#wood` },
+              },
+            },
+            {
+              from: [1, 0, 14.5],
+              to: [15, 14, 15.5],
+              faces: {
+                down: { texture: `#wool` },
+                up: { texture: `#wool` },
+                north: { texture: `#wool` },
+                south: { texture: `#wool` },
+                west: { texture: `#wool` },
+                east: { texture: `#wool` },
+              },
+            },
+          ];
+        } else {
+          finalElements = [
+            {
+              from: [7.5, 0, 7.5],
+              to: [8.5, 16, 8.5],
+              faces: {
+                down: { texture: `#wood` },
+                up: { texture: `#wood` },
+                north: { texture: `#wood` },
+                south: { texture: `#wood` },
+                west: { texture: `#wood` },
+                east: { texture: `#wood` },
+              },
+            },
+            {
+              from: [1, 2, 7.5],
+              to: [15, 16, 8.5],
+              faces: {
+                down: { texture: `#wool` },
+                up: { texture: `#wool` },
+                north: { texture: `#wool` },
+                south: { texture: `#wool` },
+                west: { texture: `#wool` },
+                east: { texture: `#wool` },
+              },
+            },
+          ];
+        }
+        textures['wood'] = 'block/oak_planks';
+        textures['wool'] = `block/${color}_wool`;
+      } else if (name.includes('chest')) {
+        // Chest / Ender Chest / Trapped Chest
+        finalElements = [
+          {
+            from: [1, 0, 1],
+            to: [15, 14, 15],
+            faces: {
+              down: { texture: `#base` },
+              up: { texture: `#base` },
+              north: { texture: `#base` },
+              south: { texture: `#base` },
+              west: { texture: `#base` },
+              east: { texture: `#base` },
+            },
+          },
+          {
+            from: [7, 7, 0],
+            to: [9, 11, 1],
+            faces: {
+              down: { texture: `#latch` },
+              up: { texture: `#latch` },
+              north: { texture: `#latch` },
+              south: { texture: `#latch` },
+              west: { texture: `#latch` },
+              east: { texture: `#latch` },
+            },
+          },
+        ];
+        if (name.includes('ender')) {
+          textures['base'] = 'block/obsidian';
+          textures['latch'] = 'block/gold_block';
+        } else {
+          textures['base'] = 'block/oak_planks';
+          textures['latch'] = 'block/iron_block';
+        }
+      } else if (name === 'water' || name.startsWith('water_')) {
+        finalElements = [
+          {
+            from: [0, 0, 0],
+            to: [16, 16, 16],
+            faces: {
+              down: { texture: `#all` },
+              up: { texture: `#all` },
+              north: { texture: `#all` },
+              south: { texture: `#all` },
+              west: { texture: `#all` },
+              east: { texture: `#all` },
+            },
+          },
+        ];
+        textures['all'] = 'block/water_still';
+      } else if (name === 'lava' || name.startsWith('lava_')) {
+        finalElements = [
+          {
+            from: [0, 0, 0],
+            to: [16, 16, 16],
+            faces: {
+              down: { texture: `#all` },
+              up: { texture: `#all` },
+              north: { texture: `#all` },
+              south: { texture: `#all` },
+              west: { texture: `#all` },
+              east: { texture: `#all` },
+            },
+          },
+        ];
+        textures['all'] = 'block/lava_still';
       } else if (name.includes('skull') || name.includes('head')) {
         // Skull / Head
         finalElements = [
@@ -575,9 +816,21 @@ export function buildBlockGeometry(
             },
           },
         ];
-        textures['head'] = 'block/bone_block_side';
+        if (name.includes('wither')) {
+          textures['head'] = 'block/coal_block';
+        } else if (name.includes('zombie')) {
+          textures['head'] = 'block/moss_block';
+        } else if (name.includes('creeper')) {
+          textures['head'] = 'block/cactus_side';
+        } else if (name.includes('dragon')) {
+          textures['head'] = 'block/obsidian';
+        } else if (name.includes('piglin')) {
+          textures['head'] = 'block/terracotta';
+        } else {
+          textures['head'] = 'block/bone_block_side';
+        }
       } else {
-        // Fallback cube
+        // Fallback cube with resolved block texture
         finalElements = [
           {
             from: [0, 0, 0],
@@ -592,7 +845,7 @@ export function buildBlockGeometry(
             },
           },
         ];
-        textures['all'] = `block/${name}`;
+        textures['all'] = `block/${resolveBlockTextureName(name)}`;
       }
     }
 
@@ -679,11 +932,7 @@ export function buildBlockGeometry(
         }
         const texClean = typeof rawTex === 'string' ? rawTex.replace(/^minecraft:/, '') : 'stone';
 
-        let uvBox = atlasData[texClean] || atlasData[`block/${texClean}`] || atlasData[`minecraft:block/${texClean}`];
-        if (!uvBox || !Array.isArray(uvBox) || uvBox.length < 4) {
-          // Fallback to oak_planks or stone if missing from atlas
-          uvBox = atlasData['block/oak_planks'] || atlasData['block/stone'] || [0, 0, 16, 16];
-        }
+        const uvBox = getAtlasUvBox(texClean, name, atlasData);
 
         const px = Number(uvBox[0]) || 0;
         const py = Number(uvBox[1]) || 0;

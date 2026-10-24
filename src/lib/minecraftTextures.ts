@@ -377,7 +377,8 @@ export function getChestTexture(chestType: string): THREE.Texture {
  * Caches loaded textures in memory and tries fallbacks gracefully.
  */
 export function getMinecraftTexture(textureName: string): THREE.Texture {
-  const cleanName = sanitizeTextureName(textureName);
+  const sanitized = sanitizeTextureName(textureName);
+  const cleanName = resolveBlockTextureName(sanitized);
 
   if (cleanName.includes('head') || cleanName.includes('skull')) {
     return getSkullTexture(cleanName);
@@ -525,6 +526,14 @@ export function resolveBlockTextureName(
     return lower;
   }
 
+  // 4b. Ketten & Stolperdraht
+  if (lower === 'chain') {
+    return 'iron_chain';
+  }
+  if (lower === 'tripwire') {
+    return 'tripwire_hook';
+  }
+
   // 5. Stairs, Slabs, Fences, Gates, Pressure Plates, Buttons, Walls
   const isSuffixBlock =
     lower.endsWith('_stairs') ||
@@ -565,6 +574,20 @@ export function resolveBlockTextureName(
       WOOD_TYPES.some((w) => base === `${w}_wood`)
     ) {
       return `${base.replace(/_wood$/, '')}_planks`;
+    }
+
+    // Weighted & Stone Pressure Plates
+    if (lower === 'heavy_weighted_pressure_plate' || base === 'heavy_weighted') {
+      return 'iron_block';
+    }
+    if (lower === 'light_weighted_pressure_plate' || base === 'light_weighted') {
+      return 'gold_block';
+    }
+    if (base === 'stone_pressure_plate' || (base === 'stone' && lower.includes('pressure_plate'))) {
+      return 'stone';
+    }
+    if (base === 'polished_blackstone' && lower.includes('pressure_plate')) {
+      return 'polished_blackstone';
     }
 
     // stone_brick_* -> stone_bricks, mossy_stone_brick_* -> mossy_stone_bricks
