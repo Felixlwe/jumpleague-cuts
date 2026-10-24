@@ -217,11 +217,32 @@ export interface SupabaseModuleRow {
   short_code: string;
   name: string;
   difficulty: string;
+  description?: string;
   blocks: VoxelBlock[];
-  spawn_point?: Vector3D | null;
-  finish_point?: Vector3D | null;
+  spawn_point?: Vector3D | number[] | null;
+  finish_point?: Vector3D | number[] | null;
   is_deleted: boolean;
   created_at?: string;
+}
+
+function parseVectorPoint(val: unknown): Vector3D | undefined {
+  if (!val) return undefined;
+  if (Array.isArray(val) && val.length >= 3) {
+    return {
+      x: Number(val[0]) || 0,
+      y: Number(val[1]) || 0,
+      z: Number(val[2]) || 0,
+    };
+  }
+  if (typeof val === 'object' && val !== null && 'x' in val && 'y' in val && 'z' in val) {
+    const obj = val as Record<string, unknown>;
+    return {
+      x: Number(obj.x) || 0,
+      y: Number(obj.y) || 0,
+      z: Number(obj.z) || 0,
+    };
+  }
+  return undefined;
 }
 
 export function mapDbRowToModule(row: Record<string, unknown>): JLModule {
@@ -240,6 +261,7 @@ export function mapDbRowToModule(row: Record<string, unknown>): JLModule {
     shortCode: String(row.short_code || row.id),
     name: String(row.name || 'Unbenanntes Modul'),
     difficulty: (row.difficulty || 'MEDIUM') as JLModule['difficulty'],
+    description: String(row.description || ''),
     dimensions: {
       x: maxX || 12,
       y: maxY || 12,
@@ -247,8 +269,8 @@ export function mapDbRowToModule(row: Record<string, unknown>): JLModule {
     },
     blockCount: blocks.length,
     blocks,
-    spawnPoint: (row.spawn_point as Vector3D) || undefined,
-    finishPoint: (row.finish_point as Vector3D) || undefined,
+    spawnPoint: parseVectorPoint(row.spawn_point),
+    finishPoint: parseVectorPoint(row.finish_point),
     isDeleted: Boolean(row.is_deleted),
     createdAt: String(row.created_at || new Date().toISOString()),
   };
@@ -260,9 +282,14 @@ export function mapModuleToDbRow(module: JLModule): SupabaseModuleRow {
     short_code: module.shortCode || module.id,
     name: module.name,
     difficulty: module.difficulty,
+    description: module.description || '',
     blocks: module.blocks,
-    spawn_point: module.spawnPoint || null,
-    finish_point: module.finishPoint || null,
+    spawn_point: module.spawnPoint
+      ? [module.spawnPoint.x, module.spawnPoint.y, module.spawnPoint.z]
+      : [0, 0, 0],
+    finish_point: module.finishPoint
+      ? [module.finishPoint.x, module.finishPoint.y, module.finishPoint.z]
+      : [0, 0, 0],
     is_deleted: Boolean(module.isDeleted),
     created_at: module.createdAt || new Date().toISOString(),
   };

@@ -116,6 +116,10 @@ export interface JLStoreState {
   // Core Actions
   selectModule: (moduleId: string) => void;
   addModule: (module: JLModule) => Promise<void> | void;
+  updateModule: (
+    moduleId: string,
+    partial: Partial<JLModule>
+  ) => Promise<void> | void;
   deleteModule: (moduleId: string) => Promise<void> | void;
   replaceModuleSchematic: (
     moduleId: string,
@@ -266,6 +270,14 @@ export const useJLStore = create<JLStoreState>()(
       },
 
       addModule: async (newModule) => {
+        // 1. Zuerst direkt an Supabase senden
+        try {
+          await upsertModuleInSupabase(newModule);
+        } catch (err) {
+          console.warn('[Store] Fehler beim Speichern des Moduls in Supabase:', err);
+        }
+
+        // 2. Danach den lokalen State aktualisieren
         const state = get();
         const existingIdx = state.modules.findIndex((m) => m.id === newModule.id);
         const updatedModules =
@@ -284,11 +296,40 @@ export const useJLStore = create<JLStoreState>()(
           pickStage: 'START',
           cameraResetCounter: state.cameraResetCounter + 1,
         });
+      },
 
-        void upsertModuleInSupabase(newModule);
+      updateModule: async (moduleId, partial) => {
+        const state = get();
+        const currentMod = state.modules.find((m) => m.id === moduleId);
+        if (!currentMod) return;
+
+        const targetUpdated: JLModule = {
+          ...currentMod,
+          ...partial,
+        };
+
+        // 1. Zuerst direkt an Supabase senden
+        try {
+          await upsertModuleInSupabase(targetUpdated);
+        } catch (err) {
+          console.warn('[Store] Fehler beim Aktualisieren des Moduls in Supabase:', err);
+        }
+
+        // 2. Danach den lokalen State aktualisieren
+        set({
+          modules: state.modules.map((m) => (m.id === moduleId ? targetUpdated : m)),
+        });
       },
 
       deleteModule: async (moduleId) => {
+        // 1. Zuerst direkt an Supabase senden
+        try {
+          await deleteModuleInSupabase(moduleId);
+        } catch (err) {
+          console.warn('[Store] Fehler beim Löschen des Moduls in Supabase:', err);
+        }
+
+        // 2. Danach den lokalen State aktualisieren
         const state = get();
         const nextModules = state.modules.filter((m) => m.id !== moduleId);
         const nextSelected =
@@ -302,35 +343,33 @@ export const useJLStore = create<JLStoreState>()(
           selectedCutId: null,
           cameraResetCounter: state.cameraResetCounter + 1,
         });
-
-        void deleteModuleInSupabase(moduleId);
       },
 
       replaceModuleSchematic: async (moduleId, newBlocks, dimensions, name) => {
         const state = get();
-        let targetUpdated: JLModule | null = null;
-        const nextModules = state.modules.map((m) => {
-          if (m.id === moduleId) {
-            targetUpdated = {
-              ...m,
-              name: name || m.name,
-              blocks: newBlocks,
-              blockCount: newBlocks.length,
-              dimensions: dimensions || m.dimensions,
-            };
-            return targetUpdated;
-          }
-          return m;
-        });
+        const currentMod = state.modules.find((m) => m.id === moduleId);
+        if (!currentMod) return;
 
+        const targetUpdated: JLModule = {
+          ...currentMod,
+          name: name || currentMod.name,
+          blocks: newBlocks,
+          blockCount: newBlocks.length,
+          dimensions: dimensions || currentMod.dimensions,
+        };
+
+        // 1. Zuerst direkt an Supabase senden
+        try {
+          await upsertModuleInSupabase(targetUpdated);
+        } catch (err) {
+          console.warn('[Store] Fehler beim Aktualisieren der Schematic in Supabase:', err);
+        }
+
+        // 2. Danach den lokalen State aktualisieren
         set({
-          modules: nextModules,
+          modules: state.modules.map((m) => (m.id === moduleId ? targetUpdated : m)),
           cameraResetCounter: state.cameraResetCounter + 1,
         });
-
-        if (targetUpdated) {
-          void upsertModuleInSupabase(targetUpdated);
-        }
       },
 
       selectCut: (cutId) => {
@@ -456,23 +495,32 @@ export const useJLStore = create<JLStoreState>()(
       syncModulesFromSupabase: async () => {
         try {
           const remoteModules = await fetchModulesFromSupabase();
-          if (remoteModules && remoteModules.length > 0) {
+          if (remoteModules !== null && remoteModules.length > 0) {
             set((state) => {
-              const remoteMap = new Map<string, JLModule>();
-              remoteModules.forEach((m) => remoteMap.set(m.id, m));
+              const moduleMap = new Map<string, JLModule>();
+              // 1. Basis Mock-Module als Fundament
+              INITIAL_MODULES.forEach((m) => moduleMap.set(m.id, m));
+              // 2. Lokale State-Module einbeziehen
+              state.modules.forEach((m) => moduleMap.set(m.id, m));
+              // 3. Aus Supabase geladene Module (is_deleted = false) haben Priorität
+              remoteModules.forEach((m) => moduleMap.set(m.id, m));
 
-              const merged = state.modules.map((m) => remoteMap.get(m.id) || m);
-              for (const rem of remoteModules) {
-                if (!state.modules.some((m) => m.id === rem.id)) {
-                  merged.push(rem);
-                }
-              }
-
-              return { modules: merged };
+              return { modules: Array.from(moduleMap.values()) };
             });
+          } else if (remoteModules === null) {
+            // Reiner Fallback auf lokale Mock-Daten, falls Fetch-Anfrage fehlschlägt
+            set((state) => ({
+              modules: state.modules.length > 0 ? state.modules : INITIAL_MODULES,
+            }));
           }
         } catch (err) {
-          console.warn('[Store] Could not sync modules with Supabase:', err);
+          console.warn(
+            '[Store] Fehler beim Laden der Module aus Supabase, nutze Fallback:',
+            err
+          );
+          set((state) => ({
+            modules: state.modules.length > 0 ? state.modules : INITIAL_MODULES,
+          }));
         }
       },
 

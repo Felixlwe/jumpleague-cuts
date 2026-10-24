@@ -42,6 +42,7 @@ export interface JLModule {
   shortCode?: string;
   name: string;
   difficulty: ModuleDifficulty;
+  description?: string;
   dimensions: Vector3D;
   blockCount: number;
   blocks: VoxelBlock[];          // Für das Test-Modul & geparste Schematics
