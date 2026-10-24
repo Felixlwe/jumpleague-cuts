@@ -173,13 +173,13 @@ export const AdminReviewPanel: React.FC = () => {
           <div className="flex items-center gap-1.5">
             <label
               className="flex cursor-pointer items-center gap-1 rounded-lg border border-purple-500/40 bg-purple-500/15 px-2 py-1 text-[10px] font-semibold text-purple-300 hover:bg-purple-500/25 hover:text-white transition"
-              title="Sponge (.schem) oder MCEdit (.schematic) hochladen"
+              title="Sponge (.schem), Litematica (.litematic) oder MCEdit (.schematic) hochladen"
             >
               <Upload className="h-3 w-3 text-purple-400" />
-              <span>{isAdminUploading ? 'Lade...' : '.schem laden'}</span>
+              <span>{isAdminUploading ? 'Lade...' : '.schem / .litematic'}</span>
               <input
                 type="file"
-                accept=".schem,.schematic"
+                accept=".schem,.schematic,.litematic"
                 onChange={handleAdminSchematicUpload}
                 disabled={isAdminUploading}
                 className="hidden"

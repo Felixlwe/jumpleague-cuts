@@ -332,7 +332,199 @@ const LEGACY_ID_MAP: Record<number, string> = {
 };
 
 /**
- * Decompresses and parses a .schem (Sponge v1/v2/v3) or legacy .schematic file
+ * Unpacks a block state index from a Litematica bit-packed LongArray (64-bit continuous bit stream)
+ */
+export function getLitematicaBlockIndex(
+  blockStates: bigint[],
+  index: number,
+  bitsPerEntry: number
+): number {
+  if (!blockStates || blockStates.length === 0) return 0;
+
+  const bitOffset = BigInt(index) * BigInt(bitsPerEntry);
+  const startLongIndex = Number(bitOffset / BigInt(64));
+  const startBitOffset = Number(bitOffset % BigInt(64));
+
+  if (startLongIndex >= blockStates.length) return 0;
+
+  const mask = (BigInt(1) << BigInt(bitsPerEntry)) - BigInt(1);
+  const currentLong = BigInt.asUintN(64, blockStates[startLongIndex]);
+  let value = currentLong >> BigInt(startBitOffset);
+  const bitsAvailable = 64 - startBitOffset;
+
+  // If the entry crosses the 64-bit boundary into the next long
+  if (bitsAvailable < bitsPerEntry && startLongIndex + 1 < blockStates.length) {
+    const nextLong = BigInt.asUintN(64, blockStates[startLongIndex + 1]);
+    value |= nextLong << BigInt(bitsAvailable);
+  }
+
+  return Number(value & mask);
+}
+
+/**
+ * Parses a native Litematica (.litematic) NBT root compound
+ */
+export function parseLitematicaCompound(
+  rootCompound: Record<string, any>,
+  fallbackName: string
+): ParsedSchematic {
+  const regions = rootCompound.Regions as Record<string, any>;
+  const regionNames = Object.keys(regions);
+  if (regionNames.length === 0) {
+    throw new Error('Litematica-Datei enthält keine Regionen unter "Regions".');
+  }
+
+  // 1. Gehe in den ersten Schlüssel unter Regions (meist 'Unnamed' oder benutzerdefinierter Name)
+  const primaryRegionName = regionNames[0];
+  const region = regions[primaryRegionName];
+  if (!region || typeof region !== 'object') {
+    throw new Error(
+      `Ungültige Litematica-Region "${primaryRegionName}" gefunden.`
+    );
+  }
+
+  // 2. Lese dort die Dimensionen aus dem Size-Tag (x, y, z)
+  const sizeTag = region.Size || region.size;
+  if (!sizeTag || typeof sizeTag !== 'object') {
+    throw new Error(
+      `Region "${primaryRegionName}" besitzt keinen gültigen Size-Tag.`
+    );
+  }
+
+  const rawX = Number(sizeTag.x ?? sizeTag.X ?? 0);
+  const rawY = Number(sizeTag.y ?? sizeTag.Y ?? 0);
+  const rawZ = Number(sizeTag.z ?? sizeTag.Z ?? 0);
+
+  const width = Math.abs(rawX);
+  const height = Math.abs(rawY);
+  const length = Math.abs(rawZ);
+
+  if (!width || !height || !length) {
+    throw new Error(
+      `Ungültige Litematica-Dimensionen in "${primaryRegionName}": x=${rawX}, y=${rawY}, z=${rawZ}`
+    );
+  }
+
+  // 3. Lese die BlockStatePalette (Array aus Objekten mit Name und optionalen Properties)
+  const rawPalette: any[] = Array.isArray(region.BlockStatePalette)
+    ? region.BlockStatePalette
+    : [];
+
+  const paletteMap = rawPalette.map((item) => {
+    if (!item || typeof item !== 'object') {
+      return parseBlockStateString('minecraft:air');
+    }
+    const blockName = String(item.Name || item.name || 'minecraft:air');
+    const props = item.Properties || item.properties;
+
+    if (props && typeof props === 'object' && Object.keys(props).length > 0) {
+      const propStr = Object.entries(props)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(',');
+      return parseBlockStateString(`${blockName}[${propStr}]`);
+    }
+
+    return parseBlockStateString(blockName);
+  });
+
+  // 4. Lese das BlockStates Array (Bit-Packed Long Array)
+  const blockStates: bigint[] = Array.isArray(region.BlockStates)
+    ? region.BlockStates
+    : [];
+
+  const totalBlocks = width * height * length;
+  const paletteCount = Math.max(1, paletteMap.length);
+
+  // Bit-Größe pro Block flexibel (basierend auf Math.max(4, Math.ceil(Math.log2(palette.length))))
+  let bitsPerBlock = Math.max(4, Math.ceil(Math.log2(paletteCount)));
+
+  // Adaptive Prüfung falls Litematica mit kleinerer Bitbreite (z. B. 2 oder 3 Bits) gepackt wurde
+  if (blockStates.length > 0 && totalBlocks > 0) {
+    for (let candidate = 2; candidate <= 16; candidate++) {
+      if (Math.ceil((totalBlocks * candidate) / 64) === blockStates.length) {
+        bitsPerBlock = candidate;
+        break;
+      }
+    }
+  }
+
+  const blocks: VoxelBlock[] = [];
+  const halfWidth = Math.floor(width / 2);
+
+  let idx = 0;
+  for (let y = 0; y < height; y++) {
+    for (let z = 0; z < length; z++) {
+      for (let x = 0; x < width; x++) {
+        const flatIndex = idx++;
+        const palId =
+          blockStates.length > 0
+            ? getLitematicaBlockIndex(blockStates, flatIndex, bitsPerBlock)
+            : 0;
+
+        const parsed =
+          paletteMap[palId] || parseBlockStateString('minecraft:air');
+        if (parsed.isAir) continue;
+
+        // Vorzeichen-orientierte Achsenkorrektur bei negativen Size-Werten
+        const finalX = rawX < 0 ? width - 1 - x : x;
+        const finalY = rawY < 0 ? height - 1 - y : y;
+        const finalZ = rawZ < 0 ? length - 1 - z : z;
+
+        blocks.push({
+          position: {
+            x: finalX - halfWidth,
+            y: finalY + 1,
+            z: finalZ,
+          },
+          type: parsed.type,
+          facing: parsed.facing,
+          half: parsed.half,
+          slabType: parsed.slabType,
+          open: parsed.open,
+          state: parsed.state,
+        });
+      }
+    }
+  }
+
+  // Modul-Name aus Metadata, Fallback oder Regionenname ableiten
+  const metaName =
+    typeof rootCompound.Metadata?.Name === 'string' &&
+    rootCompound.Metadata.Name.trim().length > 0
+      ? rootCompound.Metadata.Name.trim()
+      : undefined;
+
+  const cleanModuleName = (
+    metaName ||
+    fallbackName.replace(/\.(schem|schematic|litematic)$/i, '') ||
+    (primaryRegionName !== 'Unnamed' ? primaryRegionName : '') ||
+    'Litematica Modul'
+  )
+    .replace(/[_\s-]+/g, ' ')
+    .trim();
+
+  const moduleShortId = `U-${cleanModuleName.substring(0, 4).toUpperCase()}-${Date.now().toString().slice(-4)}`;
+
+  const module: JLModule = {
+    id: moduleShortId,
+    name: cleanModuleName || 'Litematica Modul',
+    difficulty: 'MEDIUM',
+    dimensions: { x: width, y: height, z: length },
+    blockCount: blocks.length,
+    blocks,
+  };
+
+  return {
+    name: cleanModuleName,
+    dimensions: { x: width, y: height, z: length },
+    blockCount: blocks.length,
+    blocks,
+    module,
+  };
+}
+
+/**
+ * Decompresses and parses a .schem (Sponge v1/v2/v3), native .litematic or legacy .schematic file
  */
 export async function parseSchematicData(
   rawData: Uint8Array,
@@ -358,6 +550,16 @@ export async function parseSchematicData(
   // 2. Parse NBT structure
   const reader = new NBTReader(decompressed);
   const rootCompound = reader.readRoot();
+
+  // Check if native Litematica format (.litematic)
+  if (
+    rootCompound.Regions &&
+    typeof rootCompound.Regions === 'object' &&
+    !Array.isArray(rootCompound.Regions)
+  ) {
+    return parseLitematicaCompound(rootCompound, fallbackName);
+  }
+
   const schem = findSchematicCompound(rootCompound);
 
   const width = Number(schem.Width);
@@ -488,7 +690,7 @@ export async function parseSchematicData(
   }
 
   const cleanModuleName = fallbackName
-    .replace(/\.(schem|schematic)$/i, '')
+    .replace(/\.(schem|schematic|litematic)$/i, '')
     .replace(/[_\s-]+/g, ' ')
     .trim();
 

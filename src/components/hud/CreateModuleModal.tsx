@@ -45,8 +45,8 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
   if (!isOpen) return null;
 
   const handleFileProcess = async (file: File) => {
-    if (!file.name.match(/\.(schem|schematic)$/i)) {
-      setError('Bitte wähle eine gültige .schem oder .schematic Datei aus.');
+    if (!file.name.match(/\.(schem|schematic|litematic)$/i)) {
+      setError('Bitte wähle eine gültige .schem, .schematic oder .litematic Datei aus.');
       return;
     }
 
@@ -103,7 +103,7 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
       return;
     }
     if (!parsedSchem || parsedSchem.blocks.length === 0) {
-      setError('Bitte lade eine .schem-Datei mit mindestens 1 Block hoch.');
+      setError('Bitte lade eine .schem- oder .litematic-Datei mit mindestens 1 Block hoch.');
       return;
     }
 
@@ -244,7 +244,7 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
           {/* 3. Drag & Drop Schematic Upload */}
           <div>
             <label className="block mb-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-zinc-300">
-              Sponge Schematic (.schem / .schematic)
+              Minecraft Schematic (.schem / .litematic / .schematic)
             </label>
             <div
               onDragOver={(e) => {
@@ -265,7 +265,7 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".schem,.schematic"
+                accept=".schem,.schematic,.litematic"
                 onChange={handleFileChange}
                 className="hidden"
               />
@@ -298,10 +298,10 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
                     <Upload className="h-5 w-5" />
                   </div>
                   <span className="font-semibold text-xs text-zinc-200">
-                    .schem Datei hier ablegen oder klicken
+                    .schem oder .litematic Datei hier ablegen oder klicken
                   </span>
                   <span className="text-[10px] text-zinc-500">
-                    Unterstützt Sponge (.schem) v1/v2/v3 und klassische .schematic
+                    Unterstützt Litematica (.litematic), Sponge (.schem) v1/v2/v3 und klassische .schematic
                   </span>
                 </div>
               )}

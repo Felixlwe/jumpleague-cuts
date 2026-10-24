@@ -142,21 +142,21 @@ export const TopHudBar: React.FC = () => {
 
         {/* Right: Schematic Upload, Camera Reset & Mode Switcher */}
         <div className="flex items-center gap-2">
-          {/* Schematic (.schem) Upload Button */}
+          {/* Schematic (.schem / .litematic) Upload Button */}
           <label
             className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold cursor-pointer transition shadow-lg select-none ${
               isUploading
                 ? 'border-emerald-500/50 bg-emerald-500/20 text-emerald-300 animate-pulse'
                 : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-400/60 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
             }`}
-            title="Minecraft Schematic (.schem / .schematic) von deiner Festplatte auswählen und sofort in 3D laden"
+            title="Minecraft Schematic (.schem / .litematic / .schematic) von deiner Festplatte auswählen und sofort in 3D laden"
           >
             <Upload className="h-3.5 w-3.5 text-emerald-400" />
-            <span className="hidden sm:inline">Schematic (.schem) hochladen</span>
+            <span className="hidden sm:inline">Schematic (.schem / .litematic)</span>
             <span className="sm:hidden">.schem</span>
             <input
               type="file"
-              accept=".schem,.schematic"
+              accept=".schem,.schematic,.litematic"
               onChange={handleSchematicUpload}
               disabled={isUploading}
               className="hidden"
@@ -285,13 +285,13 @@ export const TopHudBar: React.FC = () => {
         {/* Quick upload tile in module list */}
         <label
           className="group relative flex shrink-0 cursor-pointer items-center gap-2 rounded-xl border border-dashed border-emerald-500/40 bg-emerald-500/5 px-3 py-2 text-left text-xs font-semibold text-emerald-400 transition-all duration-200 hover:border-emerald-400 hover:bg-emerald-500/15 hover:text-emerald-300"
-          title="Neue Schematic (.schem) von Festplatte importieren"
+          title="Neue Schematic (.schem / .litematic) von Festplatte importieren"
         >
           <Upload className="h-4 w-4 shrink-0 text-emerald-400 group-hover:scale-110 transition-transform" />
-          <span>+ .schem laden</span>
+          <span>+ .schem / .litematic</span>
           <input
             type="file"
-            accept=".schem,.schematic"
+            accept=".schem,.schematic,.litematic"
             onChange={handleSchematicUpload}
             disabled={isUploading}
             className="hidden"

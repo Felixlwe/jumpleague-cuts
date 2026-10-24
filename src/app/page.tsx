@@ -280,11 +280,11 @@ export default function ModuleHubPage() {
         )}
       </div>
 
-      {/* Hidden File Input for .schem replacement */}
+      {/* Hidden File Input for .schem / .litematic replacement */}
       <input
         ref={replaceFileInputRef}
         type="file"
-        accept=".schem,.schematic"
+        accept=".schem,.schematic,.litematic"
         onChange={handleReplaceFile}
         className="hidden"
       />
@@ -450,7 +450,7 @@ export default function ModuleHubPage() {
                     + Neues Modul hinzufügen
                   </div>
                   <div className="text-[10px] text-zinc-400">
-                    .schem für {activeTab} importieren
+                    .schem / .litematic für {activeTab} importieren
                   </div>
                 </div>
               </button>
@@ -535,7 +535,7 @@ export default function ModuleHubPage() {
                         >
                           <button
                             type="button"
-                            title="Schematic (.schem) ersetzen"
+                            title="Schematic (.schem / .litematic) ersetzen"
                             onClick={(e) => handleTriggerReplace(e, mod.id)}
                             disabled={isReplacing && moduleToReplace === mod.id}
                             className="flex h-7 w-7 items-center justify-center rounded-lg border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/30 hover:border-cyan-400 hover:text-white transition shadow-sm active:scale-95 disabled:opacity-50"
