@@ -11,6 +11,8 @@ import {
   FileCode,
   Globe,
   DownloadCloud,
+  Sparkles,
+  StopCircle,
 } from 'lucide-react';
 import { JLModule, ModuleDifficulty } from '@/types/jumpleague';
 import {
@@ -26,6 +28,8 @@ interface CreateModuleModalProps {
   defaultDifficulty: ModuleDifficulty;
   onSave: (module: JLModule) => Promise<void> | void;
 }
+
+type ModalTab = 'FILE' | 'SINGLE_IMPORT' | 'AUTO_ALL';
 
 const DIFFICULTIES: ModuleDifficulty[] = ['EASY', 'MEDIUM', 'HARD', 'ULTRA'];
 
@@ -75,7 +79,7 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
   defaultDifficulty,
   onSave,
 }) => {
-  const [activeTab, setActiveTab] = useState<'FILE' | 'MODULES_TOP'>('FILE');
+  const [activeTab, setActiveTab] = useState<ModalTab>('AUTO_ALL');
   const [difficulty, setDifficulty] =
     useState<ModuleDifficulty>(defaultDifficulty);
 
@@ -87,7 +91,7 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
   const [isParsing, setIsParsing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  // modules.top Import State
+  // Manual / Range Import State
   const [importInput, setImportInput] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<{
@@ -98,6 +102,23 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
     errorCount: number;
     logs: string[];
   } | null>(null);
+
+  // Bulk Auto-All Import State
+  const [bulkFilter, setBulkFilter] = useState<'ALL' | ModuleDifficulty>('ALL');
+  const [isBulkImporting, setIsBulkImporting] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{
+    status: 'DISCOVERING' | 'IMPORTING' | 'DONE';
+    current: number;
+    total: number;
+    currentId: string;
+    currentName: string;
+    currentDiff: string;
+    successCount: number;
+    errorCount: number;
+    logs: string[];
+  } | null>(null);
+
+  const isAbortedRef = useRef(false);
 
   // General State
   const [error, setError] = useState<string | null>(null);
@@ -123,11 +144,9 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
       const parsed = await parseSchematicFile(file);
       setParsedSchem(parsed);
 
-      // Autofill name if still empty
       if (!name.trim()) {
         setName(parsed.name);
       }
-      // Autofill shortCode if still empty
       if (!shortCode.trim()) {
         const prefix = difficulty.charAt(0).toUpperCase();
         setShortCode(`${prefix}-NEW`);
@@ -178,10 +197,10 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
     setError(null);
 
     try {
-      const finalId = shortCode.trim().toUpperCase();
+      const finalId = shortCode.trim().toUpperCase().replace(/^#+/, '');
       const newModule: JLModule = {
         id: finalId,
-        shortCode: finalId,
+        shortCode: `#${finalId}`,
         name: name.trim(),
         difficulty,
         dimensions: parsedSchem.dimensions,
@@ -201,7 +220,7 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
     }
   };
 
-  const handleModulesTopImportSubmit = async (e: React.FormEvent) => {
+  const handleSingleImportSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const ids = parseModuleIdInput(importInput);
     if (ids.length === 0) {
@@ -239,10 +258,14 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
       );
 
       try {
+        const cleanId = String(targetId).trim().replace(/^#+/, '');
+        const finalId = cleanId;
+        const shortCodeVal = `#${cleanId}`;
+
         const response = await fetch('/api/import-module', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ moduleId: targetId, source: '120' }),
+          body: JSON.stringify({ moduleId: cleanId, source: '120' }),
         });
 
         const data = await response.json();
@@ -251,23 +274,19 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
           throw new Error(data.error || `HTTP ${response.status}`);
         }
 
-        const cleanId = String(targetId).trim().replace(/^#+/, '');
-        const finalId = cleanId;
-        const shortCode = `#${cleanId}`;
-
         const parsed = await parseBase64Schematic(
           data.base64,
           `Modul ${cleanId}`,
           {
             difficulty,
-            shortCode,
+            shortCode: shortCodeVal,
             name: `Modul ${cleanId}`,
           }
         );
 
         const newModule: JLModule = {
           id: finalId,
-          shortCode,
+          shortCode: shortCodeVal,
           name: parsed.name || `Modul ${cleanId}`,
           difficulty,
           dimensions: parsed.dimensions,
@@ -282,7 +301,7 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
 
         successes++;
         newLogs.push(
-          `✓ Modul #${targetId}: ${parsed.blockCount} Blöcke erfolgreich gespeichert`
+          `✓ Modul #${cleanId}: ${parsed.blockCount} Blöcke erfolgreich gespeichert`
         );
       } catch (err: any) {
         errors++;
@@ -312,10 +331,177 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
     }
   };
 
+  const handleStartBulkAutoImport = async () => {
+    setIsBulkImporting(true);
+    setError(null);
+    isAbortedRef.current = false;
+
+    setBulkProgress({
+      status: 'DISCOVERING',
+      current: 0,
+      total: 0,
+      currentId: '',
+      currentName: '',
+      currentDiff: '',
+      successCount: 0,
+      errorCount: 0,
+      logs: ['Erfasse alle 1.20 Module von modules.top...'],
+    });
+
+    try {
+      const listRes = await fetch('/api/import-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: '120' }),
+      });
+
+      const listData = await listRes.json();
+      if (!listRes.ok || !listData.success || !Array.isArray(listData.modules)) {
+        throw new Error(
+          listData.error || 'Fehler beim Abrufen der Modulliste von modules.top.'
+        );
+      }
+
+      let targetModules: Array<{
+        id: string;
+        name: string;
+        difficulty: ModuleDifficulty;
+      }> = listData.modules;
+
+      if (bulkFilter !== 'ALL') {
+        targetModules = targetModules.filter((m) => m.difficulty === bulkFilter);
+      }
+
+      const total = targetModules.length;
+      if (total === 0) {
+        throw new Error('Keine Module für den gewählten Filter gefunden.');
+      }
+
+      setBulkProgress({
+        status: 'IMPORTING',
+        current: 0,
+        total,
+        currentId: targetModules[0]?.id || '',
+        currentName: targetModules[0]?.name || '',
+        currentDiff: targetModules[0]?.difficulty || '',
+        successCount: 0,
+        errorCount: 0,
+        logs: [
+          `Gefunden: ${total} Module auf modules.top. Starte NBT-Download & Speicherung...`,
+        ],
+      });
+
+      let successes = 0;
+      let errors = 0;
+      const logs: string[] = [
+        `Gefunden: ${total} Module. Starte Massen-Import...`,
+      ];
+
+      for (let i = 0; i < total; i++) {
+        if (isAbortedRef.current) {
+          logs.unshift('⚠️ Massen-Import durch Benutzer angehalten.');
+          break;
+        }
+
+        const modInfo = targetModules[i];
+        const rawId = modInfo.id;
+        const cleanId = String(rawId).trim().replace(/^#+/, '');
+        const shortCodeVal = `#${cleanId}`;
+
+        setBulkProgress((prev) =>
+          prev
+            ? {
+                ...prev,
+                current: i + 1,
+                currentId: cleanId,
+                currentName: modInfo.name,
+                currentDiff: modInfo.difficulty,
+              }
+            : null
+        );
+
+        try {
+          const modRes = await fetch('/api/import-module', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ moduleId: cleanId, source: '120' }),
+          });
+
+          const modData = await modRes.json();
+          if (!modRes.ok || !modData.success || !modData.base64) {
+            throw new Error(modData.error || `HTTP ${modRes.status}`);
+          }
+
+          const parsed = await parseBase64Schematic(
+            modData.base64,
+            modInfo.name || `Modul ${cleanId}`,
+            {
+              difficulty: modInfo.difficulty,
+              shortCode: shortCodeVal,
+              name: modInfo.name || `Modul ${cleanId}`,
+            }
+          );
+
+          const newModule: JLModule = {
+            id: cleanId,
+            shortCode: shortCodeVal,
+            name: parsed.name || modInfo.name || `Modul ${cleanId}`,
+            difficulty:
+              modInfo.difficulty || parsed.module?.difficulty || 'EASY',
+            dimensions: parsed.dimensions,
+            blockCount: parsed.blocks.length,
+            blocks: parsed.blocks,
+            spawnPoint: parsed.module?.spawnPoint,
+            finishPoint: parsed.module?.finishPoint,
+            createdAt: new Date().toISOString(),
+          };
+
+          await onSave(newModule);
+
+          successes++;
+          logs.unshift(
+            `✓ [${i + 1}/${total}] Modul #${cleanId} (${modInfo.difficulty}): ${parsed.blockCount} Blöcke gespeichert`
+          );
+        } catch (err: any) {
+          errors++;
+          logs.unshift(
+            `✗ [${i + 1}/${total}] Modul #${cleanId}: ${err.message || 'Fehlgeschlagen'}`
+          );
+        }
+
+        setBulkProgress((prev) =>
+          prev
+            ? {
+                ...prev,
+                successCount: successes,
+                errorCount: errors,
+                logs: logs.slice(0, 60),
+              }
+            : null
+        );
+      }
+
+      setBulkProgress((prev) =>
+        prev ? { ...prev, status: 'DONE' } : null
+      );
+    } catch (err: any) {
+      console.error('Bulk auto-import error:', err);
+      setError(err.message || 'Fehler beim automatischen Massen-Import.');
+    } finally {
+      setIsBulkImporting(false);
+    }
+  };
+
+  const handleStopBulkImport = () => {
+    isAbortedRef.current = true;
+  };
+
+  const isAnyLoading = isImporting || isBulkImporting || isSubmitting;
+
   return (
     <div
       onClick={(e) => {
-        if (e.target === e.currentTarget && !isImporting && !isSubmitting) {
+        if (e.target === e.currentTarget && !isAnyLoading) {
           onClose();
         }
       }}
@@ -323,7 +509,7 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-lg overflow-hidden rounded-3xl border border-purple-500/30 bg-zinc-950/95 p-6 shadow-[0_0_60px_rgba(168,85,247,0.25)] text-zinc-100"
+        className="relative w-full max-w-xl overflow-hidden rounded-3xl border border-purple-500/30 bg-zinc-950/95 p-6 shadow-[0_0_60px_rgba(168,85,247,0.25)] text-zinc-100"
       >
         {/* Ambient Glows */}
         <div className="pointer-events-none absolute -top-24 -left-24 h-48 w-48 rounded-full bg-purple-600/20 blur-3xl" />
@@ -340,7 +526,7 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
                 ADMIN // MODUL-VERWALTUNG
               </div>
               <h3 className="text-base font-bold text-white tracking-tight">
-                Neues JumpLeague-Modul hinzufügen
+                JumpLeague-Module importieren &amp; hinzufügen
               </h3>
             </div>
           </div>
@@ -348,7 +534,7 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            disabled={isImporting || isSubmitting}
+            disabled={isAnyLoading}
             className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/10 hover:text-white transition disabled:opacity-40"
             title="Schließen"
           >
@@ -356,47 +542,411 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
           </button>
         </div>
 
-        {/* Tab Switcher: File Upload vs modules.top Import */}
-        <div className="mt-4 flex items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/80 p-1">
+        {/* 3 Tabs: Auto-All Import | Manual ID Import | File Upload */}
+        <div className="mt-4 grid grid-cols-3 gap-1.5 rounded-xl border border-white/10 bg-zinc-900/80 p-1">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('AUTO_ALL');
+              setError(null);
+            }}
+            disabled={isAnyLoading}
+            className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-bold transition-all ${
+              activeTab === 'AUTO_ALL'
+                ? 'bg-purple-600/30 text-purple-200 border border-purple-400/50 shadow-md ring-1 ring-purple-400/40'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Sparkles className="h-3.5 w-3.5 text-purple-400" />
+            <span>Alle 1.20 Module</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('SINGLE_IMPORT');
+              setError(null);
+            }}
+            disabled={isAnyLoading}
+            className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-bold transition-all ${
+              activeTab === 'SINGLE_IMPORT'
+                ? 'bg-purple-600/30 text-purple-200 border border-purple-400/50 shadow-md ring-1 ring-purple-400/40'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Globe className="h-3.5 w-3.5 text-cyan-400" />
+            <span>ID-Direktimport</span>
+          </button>
+
           <button
             type="button"
             onClick={() => {
               setActiveTab('FILE');
               setError(null);
             }}
-            disabled={isImporting || isSubmitting}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-2 text-xs font-bold transition-all ${
+            disabled={isAnyLoading}
+            className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-bold transition-all ${
               activeTab === 'FILE'
-                ? 'bg-purple-600/30 text-purple-200 border border-purple-400/50 shadow-md'
+                ? 'bg-purple-600/30 text-purple-200 border border-purple-400/50 shadow-md ring-1 ring-purple-400/40'
                 : 'text-zinc-400 hover:text-white'
             }`}
           >
-            <Upload className="h-3.5 w-3.5" />
-            <span>Datei (.schem / .litematic)</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('MODULES_TOP');
-              setError(null);
-            }}
-            disabled={isImporting || isSubmitting}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-2 text-xs font-bold transition-all ${
-              activeTab === 'MODULES_TOP'
-                ? 'bg-purple-600/30 text-purple-200 border border-purple-400/50 shadow-md'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <Globe className="h-3.5 w-3.5" />
-            <span>Von modules.top importieren</span>
+            <Upload className="h-3.5 w-3.5 text-emerald-400" />
+            <span>Datei (.schem)</span>
           </button>
         </div>
 
-        {/* TAB 1: Local File Upload Form */}
-        {activeTab === 'FILE' ? (
+        {/* TAB 1: AUTO ALL 1.20 MODULES (THE NEW AUTOMATED BULK IMPORTER) */}
+        {activeTab === 'AUTO_ALL' && (
+          <div className="mt-4 space-y-4">
+            {/* Info Box */}
+            <div className="rounded-2xl border border-purple-500/25 bg-purple-950/20 p-4">
+              <div className="flex items-start gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-purple-500/20 text-purple-300">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-xs font-bold text-white">
+                    Automatischer 1.20 Massen-Import von modules.top
+                  </h4>
+                  <p className="text-[11px] text-zinc-300 leading-relaxed">
+                    Erkennt alle 893 JumpLeague-Module aus den Kategorien{' '}
+                    <span className="text-emerald-400 font-semibold">Easy (199)</span>,{' '}
+                    <span className="text-cyan-400 font-semibold">Medium (418)</span>,{' '}
+                    <span className="text-amber-400 font-semibold">Hard (239)</span> und{' '}
+                    <span className="text-purple-400 font-semibold">Ultra (37)</span>.
+                    Jedes Modul wird mit seinen 3D-Blöcken, Spawn- &amp; Ziel-Punkten
+                    geladen und direkt in Supabase gespeichert.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Category Filter Selector */}
+            <div>
+              <label className="block mb-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-zinc-300">
+                Umfang des Imports
+              </label>
+              <div className="grid grid-cols-5 gap-1.5 text-xs font-bold">
+                {[
+                  { id: 'ALL', label: 'Alle (893)' },
+                  { id: 'EASY', label: 'Easy (199)' },
+                  { id: 'MEDIUM', label: 'Medium (418)' },
+                  { id: 'HARD', label: 'Hard (239)' },
+                  { id: 'ULTRA', label: 'Ultra (37)' },
+                ].map((cat) => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setBulkFilter(cat.id as any)}
+                    disabled={isBulkImporting}
+                    className={`rounded-xl border py-2 text-[11px] font-bold transition ${
+                      bulkFilter === cat.id
+                        ? 'border-purple-400/80 bg-purple-500/25 text-white shadow-sm'
+                        : 'border-white/10 bg-zinc-900/60 text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Live Progress Bar & Status Display */}
+            {bulkProgress && (
+              <div className="rounded-2xl border border-purple-500/30 bg-zinc-900/90 p-4 space-y-3 animate-in fade-in">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-mono text-purple-300 font-bold truncate pr-2">
+                    {bulkProgress.status === 'DISCOVERING' ? (
+                      'Erfasse Module von modules.top...'
+                    ) : bulkProgress.status === 'IMPORTING' ? (
+                      `Importiere Modul ${bulkProgress.current} von ${bulkProgress.total} (Modul #${bulkProgress.currentId}) [${bulkProgress.currentDiff}]...`
+                    ) : (
+                      `✓ Fertig! ${bulkProgress.successCount} von ${bulkProgress.total} Modulen importiert.`
+                    )}
+                  </span>
+                  <span className="font-mono text-xs font-bold text-white shrink-0">
+                    {bulkProgress.total > 0
+                      ? `${Math.round(
+                          (bulkProgress.current / bulkProgress.total) * 100
+                        )}%`
+                      : '0%'}
+                  </span>
+                </div>
+
+                {/* Animated Gradient Progress Bar */}
+                <div className="h-2.5 w-full overflow-hidden rounded-full bg-zinc-800">
+                  <div
+                    className="h-full bg-gradient-to-r from-purple-500 via-cyan-400 to-emerald-400 transition-all duration-300"
+                    style={{
+                      width: `${
+                        bulkProgress.total > 0
+                          ? Math.round(
+                              (bulkProgress.current / bulkProgress.total) * 100
+                            )
+                          : 0
+                      }%`,
+                    }}
+                  />
+                </div>
+
+                {/* Counters */}
+                <div className="flex items-center justify-between text-[11px] font-mono">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-md bg-emerald-500/20 px-2 py-0.5 font-bold text-emerald-300 border border-emerald-500/40">
+                      ✓ {bulkProgress.successCount} gespeichert
+                    </span>
+                    {bulkProgress.errorCount > 0 && (
+                      <span className="rounded-md bg-rose-500/20 px-2 py-0.5 font-bold text-rose-300 border border-rose-500/40">
+                        ✗ {bulkProgress.errorCount} fehlgeschlagen
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-zinc-400">
+                    Verbleibend:{' '}
+                    {Math.max(
+                      0,
+                      bulkProgress.total - bulkProgress.current
+                    )}
+                  </span>
+                </div>
+
+                {/* Activity Feed Terminal */}
+                <div className="max-h-36 overflow-y-auto rounded-xl border border-white/10 bg-zinc-950 p-2.5 font-mono text-[10px] text-zinc-400 space-y-1">
+                  {bulkProgress.logs.map((log, idx) => (
+                    <div
+                      key={idx}
+                      className={
+                        log.startsWith('✓')
+                          ? 'text-emerald-400'
+                          : log.startsWith('⚠️')
+                          ? 'text-amber-300 font-bold'
+                          : log.startsWith('✗')
+                          ? 'text-rose-400'
+                          : 'text-zinc-300'
+                      }
+                    >
+                      {log}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Error Message */}
+            {error && (
+              <div className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/15 p-2.5 text-xs text-rose-300 animate-in fade-in">
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-white/10">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isBulkImporting}
+                className="rounded-xl border border-white/10 bg-zinc-900 px-4 py-2.5 text-xs font-semibold text-zinc-300 hover:bg-white/10 hover:text-white transition disabled:opacity-40"
+              >
+                {bulkProgress && !isBulkImporting ? 'Fertigstellen & Schließen' : 'Abbrechen'}
+              </button>
+
+              {isBulkImporting ? (
+                <button
+                  type="button"
+                  onClick={handleStopBulkImport}
+                  className="flex items-center gap-2 rounded-xl border border-rose-500/50 bg-rose-600/80 px-5 py-2.5 text-xs font-bold text-white shadow-lg hover:bg-rose-600 transition active:scale-95"
+                >
+                  <StopCircle className="h-4 w-4" />
+                  <span>Import stoppen</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleStartBulkAutoImport}
+                  className="flex items-center gap-2 rounded-xl border border-purple-400/50 bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-600 px-6 py-2.5 text-xs font-bold text-white shadow-[0_0_25px_rgba(168,85,247,0.45)] hover:from-purple-500 hover:to-cyan-500 transition active:scale-95"
+                >
+                  <Sparkles className="h-4 w-4 text-purple-200" />
+                  <span>Alle 1.20 Module jetzt massenhaft importieren</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: MANUAL ID / RANGE IMPORT FROM MODULES.TOP */}
+        {activeTab === 'SINGLE_IMPORT' && (
+          <form onSubmit={handleSingleImportSubmit} className="mt-4 space-y-4">
+            <div>
+              <label className="block mb-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-zinc-300">
+                Ziel-Kategorie / Schwierigkeit
+              </label>
+              <div className="grid grid-cols-4 gap-2">
+                {DIFFICULTIES.map((diff) => {
+                  const isSelected = difficulty === diff;
+                  const cfg = MODULE_DIFFICULTY_CONFIG[diff];
+                  return (
+                    <button
+                      key={diff}
+                      type="button"
+                      onClick={() => setDifficulty(diff)}
+                      disabled={isImporting}
+                      className={`rounded-xl border py-2 text-xs font-bold transition-all ${
+                        isSelected
+                          ? 'border-white/30 text-white shadow-md'
+                          : 'border-white/10 bg-zinc-900/60 text-zinc-400 hover:text-white hover:bg-zinc-800/80'
+                      }`}
+                      style={
+                        isSelected
+                          ? {
+                              backgroundColor: `${cfg.color}25`,
+                              borderColor: `${cfg.color}88`,
+                              color: '#ffffff',
+                              boxShadow: `0 0 15px ${cfg.color}33`,
+                            }
+                          : {}
+                      }
+                    >
+                      {cfg.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label className="block mb-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-zinc-300">
+                Modul-ID(s) auf modules.top
+              </label>
+              <input
+                type="text"
+                value={importInput}
+                onChange={(e) => setImportInput(e.target.value)}
+                placeholder="z.B. 11 oder 11, 13, 17 oder 10-20"
+                disabled={isImporting}
+                required
+                className="w-full rounded-xl border border-white/15 bg-zinc-900/90 px-3.5 py-2.5 font-mono text-xs text-white placeholder-zinc-500 focus:border-cyan-400 focus:outline-none transition"
+              />
+              <p className="mt-1.5 text-[11px] text-zinc-400 leading-relaxed">
+                Unterstützt Einzel-IDs (z. B.{' '}
+                <span className="font-mono text-cyan-300 font-semibold">11</span>
+                ), Listen (
+                <span className="font-mono text-cyan-300 font-semibold">
+                  11, 17, 19
+                </span>
+                ) oder Bereiche (
+                <span className="font-mono text-cyan-300 font-semibold">
+                  10-15
+                </span>
+                ). Module werden als Kürzel{' '}
+                <span className="font-mono text-purple-300">#&lt;id&gt;</span> mit
+                Name angelegt.
+              </p>
+            </div>
+
+            {importProgress && (
+              <div className="rounded-2xl border border-purple-500/30 bg-zinc-900/80 p-3.5 space-y-2.5 animate-in fade-in">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-mono text-purple-300 font-bold">
+                    {isImporting
+                      ? `Importiere Modul #${importProgress.currentId} (${importProgress.current}/${importProgress.total})...`
+                      : `Import abgeschlossen (${importProgress.successCount}/${importProgress.total} erfolgreich)`}
+                  </span>
+                  <span className="font-mono text-xs text-zinc-400">
+                    {Math.round(
+                      (importProgress.current /
+                        Math.max(1, importProgress.total)) *
+                        100
+                    )}
+                    %
+                  </span>
+                </div>
+
+                <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+                  <div
+                    className="h-full bg-gradient-to-r from-purple-500 via-cyan-400 to-emerald-400 transition-all duration-300"
+                    style={{
+                      width: `${Math.round(
+                        (importProgress.current /
+                          Math.max(1, importProgress.total)) *
+                          100
+                      )}%`,
+                    }}
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 pt-1 font-mono text-[10px]">
+                  <span className="rounded-md bg-emerald-500/20 px-2 py-0.5 font-bold text-emerald-300 border border-emerald-500/40">
+                    ✓ {importProgress.successCount} erfolgreich
+                  </span>
+                  {importProgress.errorCount > 0 && (
+                    <span className="rounded-md bg-rose-500/20 px-2 py-0.5 font-bold text-rose-300 border border-rose-500/40">
+                      ✗ {importProgress.errorCount} fehlgeschlagen / 404
+                    </span>
+                  )}
+                </div>
+
+                {importProgress.logs.length > 0 && (
+                  <div className="max-h-28 overflow-y-auto rounded-xl border border-white/5 bg-zinc-950 p-2 font-mono text-[10px] text-zinc-400 space-y-0.5">
+                    {importProgress.logs.map((log, idx) => (
+                      <div
+                        key={idx}
+                        className={
+                          log.startsWith('✓')
+                            ? 'text-emerald-400'
+                            : 'text-amber-400'
+                        }
+                      >
+                        {log}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {error && (
+              <div className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/15 p-2.5 text-xs text-rose-300 animate-in fade-in">
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isImporting}
+                className="rounded-xl border border-white/10 bg-zinc-900 px-4 py-2 text-xs font-semibold text-zinc-300 hover:bg-white/10 hover:text-white transition disabled:opacity-40"
+              >
+                {importProgress && !isImporting ? 'Schließen' : 'Abbrechen'}
+              </button>
+
+              <button
+                type="submit"
+                disabled={isImporting || !importInput.trim()}
+                className="flex items-center gap-2 rounded-xl border border-cyan-400/50 bg-gradient-to-r from-cyan-600 to-purple-600 px-5 py-2 text-xs font-bold text-white shadow-[0_0_20px_rgba(6,182,212,0.35)] hover:from-cyan-500 hover:to-purple-500 transition active:scale-95 disabled:opacity-40"
+              >
+                {isImporting ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Importiere...</span>
+                  </>
+                ) : (
+                  <>
+                    <DownloadCloud className="h-3.5 w-3.5" />
+                    <span>Jetzt importieren</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* TAB 3: FILE UPLOAD (.schem / .litematic) */}
+        {activeTab === 'FILE' && (
           <form onSubmit={handleFileUploadSubmit} className="mt-4 space-y-4">
-            {/* 1. Category Selection */}
             <div>
               <label className="block mb-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-zinc-300">
                 Kategorie / Schwierigkeit
@@ -433,7 +983,6 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
               </div>
             </div>
 
-            {/* 2. Kürzel/ID & Name */}
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block mb-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-zinc-300">
@@ -463,7 +1012,6 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
               </div>
             </div>
 
-            {/* 3. Drag & Drop Schematic Upload */}
             <div>
               <label className="block mb-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-zinc-300">
                 Minecraft Datei (.schem / .litematic / .schematic)
@@ -531,7 +1079,6 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
               </div>
             </div>
 
-            {/* Error Message */}
             {error && (
               <div className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/15 p-2.5 text-xs text-rose-300 animate-in fade-in">
                 <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
@@ -539,7 +1086,6 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
               </div>
             )}
 
-            {/* Action Buttons */}
             <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-white/10">
               <button
                 type="button"
@@ -564,181 +1110,6 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
                   <>
                     <FileCode className="h-3.5 w-3.5" />
                     <span>Modul anlegen &amp; speichern</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-        ) : (
-          /* TAB 2: modules.top Direct Importer Form */
-          <form onSubmit={handleModulesTopImportSubmit} className="mt-4 space-y-4">
-            {/* 1. Category Selection */}
-            <div>
-              <label className="block mb-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-zinc-300">
-                Ziel-Kategorie / Schwierigkeit
-              </label>
-              <div className="grid grid-cols-4 gap-2">
-                {DIFFICULTIES.map((diff) => {
-                  const isSelected = difficulty === diff;
-                  const cfg = MODULE_DIFFICULTY_CONFIG[diff];
-                  return (
-                    <button
-                      key={diff}
-                      type="button"
-                      onClick={() => setDifficulty(diff)}
-                      disabled={isImporting}
-                      className={`rounded-xl border py-2 text-xs font-bold transition-all ${
-                        isSelected
-                          ? 'border-white/30 text-white shadow-md'
-                          : 'border-white/10 bg-zinc-900/60 text-zinc-400 hover:text-white hover:bg-zinc-800/80'
-                      }`}
-                      style={
-                        isSelected
-                          ? {
-                              backgroundColor: `${cfg.color}25`,
-                              borderColor: `${cfg.color}88`,
-                              color: '#ffffff',
-                              boxShadow: `0 0 15px ${cfg.color}33`,
-                            }
-                          : {}
-                      }
-                    >
-                      {cfg.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* 2. Modul-ID(s) Input */}
-            <div>
-              <label className="block mb-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-zinc-300">
-                Modul-ID(s) auf modules.top
-              </label>
-              <input
-                type="text"
-                value={importInput}
-                onChange={(e) => setImportInput(e.target.value)}
-                placeholder="z.B. 11 oder 11, 13, 17 oder 10-20"
-                disabled={isImporting}
-                required
-                className="w-full rounded-xl border border-white/15 bg-zinc-900/90 px-3.5 py-2.5 font-mono text-xs text-white placeholder-zinc-500 focus:border-cyan-400 focus:outline-none transition"
-              />
-              <p className="mt-1.5 text-[11px] text-zinc-400 leading-relaxed">
-                Unterstützt Einzel-IDs (z. B.{' '}
-                <span className="font-mono text-cyan-300 font-semibold">11</span>
-                ), Listen (
-                <span className="font-mono text-cyan-300 font-semibold">
-                  11, 17, 19
-                </span>
-                ) oder Bereiche (
-                <span className="font-mono text-cyan-300 font-semibold">
-                  10-15
-                </span>
-                ). Module werden als Kürzel{' '}
-                <span className="font-mono text-purple-300">#&lt;id&gt;</span> mit
-                Name angelegt.
-              </p>
-            </div>
-
-            {/* 3. Progress Bar & Live Status */}
-            {importProgress && (
-              <div className="rounded-2xl border border-purple-500/30 bg-zinc-900/80 p-3.5 space-y-2.5 animate-in fade-in">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-mono text-purple-300 font-bold">
-                    {isImporting
-                      ? `Importiere Modul #${importProgress.currentId} (${importProgress.current}/${importProgress.total})...`
-                      : `Import abgeschlossen (${importProgress.successCount}/${importProgress.total} erfolgreich)`}
-                  </span>
-                  <span className="font-mono text-xs text-zinc-400">
-                    {Math.round(
-                      (importProgress.current /
-                        Math.max(1, importProgress.total)) *
-                        100
-                    )}
-                    %
-                  </span>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
-                  <div
-                    className="h-full bg-gradient-to-r from-purple-500 via-cyan-400 to-emerald-400 transition-all duration-300"
-                    style={{
-                      width: `${Math.round(
-                        (importProgress.current /
-                          Math.max(1, importProgress.total)) *
-                          100
-                      )}%`,
-                    }}
-                  />
-                </div>
-
-                {/* Summary badges */}
-                <div className="flex items-center gap-2 pt-1 font-mono text-[10px]">
-                  <span className="rounded-md bg-emerald-500/20 px-2 py-0.5 font-bold text-emerald-300 border border-emerald-500/40">
-                    ✓ {importProgress.successCount} erfolgreich
-                  </span>
-                  {importProgress.errorCount > 0 && (
-                    <span className="rounded-md bg-rose-500/20 px-2 py-0.5 font-bold text-rose-300 border border-rose-500/40">
-                      ✗ {importProgress.errorCount} fehlgeschlagen / 404
-                    </span>
-                  )}
-                </div>
-
-                {/* Live Logs Box */}
-                {importProgress.logs.length > 0 && (
-                  <div className="max-h-28 overflow-y-auto rounded-xl border border-white/5 bg-zinc-950 p-2 font-mono text-[10px] text-zinc-400 space-y-0.5">
-                    {importProgress.logs.map((log, idx) => (
-                      <div
-                        key={idx}
-                        className={
-                          log.startsWith('✓')
-                            ? 'text-emerald-400'
-                            : 'text-amber-400'
-                        }
-                      >
-                        {log}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Error Message */}
-            {error && (
-              <div className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/15 p-2.5 text-xs text-rose-300 animate-in fade-in">
-                <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-white/10">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={isImporting}
-                className="rounded-xl border border-white/10 bg-zinc-900 px-4 py-2 text-xs font-semibold text-zinc-300 hover:bg-white/10 hover:text-white transition disabled:opacity-40"
-              >
-                {importProgress && !isImporting ? 'Schließen' : 'Abbrechen'}
-              </button>
-
-              <button
-                type="submit"
-                disabled={isImporting || !importInput.trim()}
-                className="flex items-center gap-2 rounded-xl border border-cyan-400/50 bg-gradient-to-r from-cyan-600 to-purple-600 px-5 py-2 text-xs font-bold text-white shadow-[0_0_20px_rgba(6,182,212,0.35)] hover:from-cyan-500 hover:to-purple-500 transition active:scale-95 disabled:opacity-40"
-              >
-                {isImporting ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>Importiere...</span>
-                  </>
-                ) : (
-                  <>
-                    <DownloadCloud className="h-3.5 w-3.5" />
-                    <span>Jetzt importieren</span>
                   </>
                 )}
               </button>
