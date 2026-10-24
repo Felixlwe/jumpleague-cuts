@@ -39,11 +39,16 @@ export interface Cut {
 
 export interface JLModule {
   id: string;                    // z.B. "E1", "M14", "H8", "U3"
+  shortCode?: string;
   name: string;
   difficulty: ModuleDifficulty;
   dimensions: Vector3D;
   blockCount: number;
   blocks: VoxelBlock[];          // Für das Test-Modul & geparste Schematics
+  spawnPoint?: Vector3D;
+  finishPoint?: Vector3D;
+  isDeleted?: boolean;
+  createdAt?: string;
 }
 
 export type VoxelBlockType =

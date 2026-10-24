@@ -7,6 +7,7 @@ import {
   JLModule,
   MovementTech,
   Vector3D,
+  VoxelBlock,
 } from '@/types/jumpleague';
 import { INITIAL_CUTS, INITIAL_MODULES } from '@/lib/mockModuleGenerator';
 import {
@@ -14,6 +15,9 @@ import {
   insertCutIntoSupabase,
   updateCutInSupabase,
   deleteCutFromSupabase,
+  fetchModulesFromSupabase,
+  upsertModuleInSupabase,
+  deleteModuleInSupabase,
 } from '@/lib/supabase';
 
 export type AppMode = 'EXPLORE' | 'SUBMIT' | 'ADMIN';
@@ -105,12 +109,20 @@ export interface JLStoreState {
 
   // Admin & Cloud Database State
   isAdminAuthenticated: boolean;
+  isAdminMode: boolean;
   isAdminAuthModalOpen: boolean;
   isSyncingWithSupabase: boolean;
 
   // Core Actions
   selectModule: (moduleId: string) => void;
-  addModule: (module: JLModule) => void;
+  addModule: (module: JLModule) => Promise<void> | void;
+  deleteModule: (moduleId: string) => Promise<void> | void;
+  replaceModuleSchematic: (
+    moduleId: string,
+    newBlocks: VoxelBlock[],
+    dimensions?: Vector3D,
+    name?: string
+  ) => Promise<void> | void;
   selectCut: (cutId: string | null) => void;
   setHoveredCut: (cutId: string | null) => void;
   toggleCutLines: () => void;
@@ -121,8 +133,11 @@ export interface JLStoreState {
   triggerCameraReset: () => void;
   setActiveMode: (mode: AppMode) => void;
   setAdminAuthenticated: (auth: boolean) => void;
+  setAdminMode: (active: boolean) => void;
+  toggleAdminMode: () => void;
   setAdminAuthModalOpen: (open: boolean) => void;
   syncCutsFromSupabase: () => Promise<void>;
+  syncModulesFromSupabase: () => Promise<void>;
 
   // Filter Actions
   updateFilters: (partial: Partial<FilterState>) => void;
@@ -186,6 +201,17 @@ function syncStateAfterFilterUpdate(
   };
 }
 
+function getInitialAdminState(): { auth: boolean; mode: boolean } {
+  if (typeof window === 'undefined') return { auth: false, mode: false };
+  try {
+    const auth = sessionStorage.getItem('jl_admin_auth') === 'true';
+    const mode = sessionStorage.getItem('jl_admin_mode') === 'true';
+    return { auth, mode: auth && mode };
+  } catch {
+    return { auth: false, mode: false };
+  }
+}
+
 export const useJLStore = create<JLStoreState>()(
   persist(
     (set, get) => ({
@@ -201,7 +227,8 @@ export const useJLStore = create<JLStoreState>()(
       filters: DEFAULT_FILTERS,
 
       // Admin & Supabase Sync State
-      isAdminAuthenticated: false,
+      isAdminAuthenticated: getInitialAdminState().auth,
+      isAdminMode: getInitialAdminState().mode,
       isAdminAuthModalOpen: false,
       isSyncingWithSupabase: false,
 
@@ -238,7 +265,7 @@ export const useJLStore = create<JLStoreState>()(
         });
       },
 
-      addModule: (newModule) => {
+      addModule: async (newModule) => {
         const state = get();
         const existingIdx = state.modules.findIndex((m) => m.id === newModule.id);
         const updatedModules =
@@ -257,6 +284,53 @@ export const useJLStore = create<JLStoreState>()(
           pickStage: 'START',
           cameraResetCounter: state.cameraResetCounter + 1,
         });
+
+        void upsertModuleInSupabase(newModule);
+      },
+
+      deleteModule: async (moduleId) => {
+        const state = get();
+        const nextModules = state.modules.filter((m) => m.id !== moduleId);
+        const nextSelected =
+          state.selectedModuleId === moduleId
+            ? nextModules[0]?.id || ''
+            : state.selectedModuleId;
+
+        set({
+          modules: nextModules,
+          selectedModuleId: nextSelected,
+          selectedCutId: null,
+          cameraResetCounter: state.cameraResetCounter + 1,
+        });
+
+        void deleteModuleInSupabase(moduleId);
+      },
+
+      replaceModuleSchematic: async (moduleId, newBlocks, dimensions, name) => {
+        const state = get();
+        let targetUpdated: JLModule | null = null;
+        const nextModules = state.modules.map((m) => {
+          if (m.id === moduleId) {
+            targetUpdated = {
+              ...m,
+              name: name || m.name,
+              blocks: newBlocks,
+              blockCount: newBlocks.length,
+              dimensions: dimensions || m.dimensions,
+            };
+            return targetUpdated;
+          }
+          return m;
+        });
+
+        set({
+          modules: nextModules,
+          cameraResetCounter: state.cameraResetCounter + 1,
+        });
+
+        if (targetUpdated) {
+          void upsertModuleInSupabase(targetUpdated);
+        }
       },
 
       selectCut: (cutId) => {
@@ -341,9 +415,66 @@ export const useJLStore = create<JLStoreState>()(
         }
       },
 
-      setAdminAuthenticated: (auth) => set({ isAdminAuthenticated: auth }),
+      setAdminAuthenticated: (auth) => {
+        if (typeof window !== 'undefined') {
+          if (auth) {
+            sessionStorage.setItem('jl_admin_auth', 'true');
+            sessionStorage.setItem('jl_admin_mode', 'true');
+          } else {
+            sessionStorage.removeItem('jl_admin_auth');
+            sessionStorage.removeItem('jl_admin_mode');
+          }
+        }
+        set({
+          isAdminAuthenticated: auth,
+          isAdminMode: auth,
+        });
+      },
+
+      setAdminMode: (active) => {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('jl_admin_mode', String(active));
+        }
+        set({ isAdminMode: active });
+      },
+
+      toggleAdminMode: () => {
+        const state = get();
+        if (!state.isAdminAuthenticated) {
+          set({ isAdminAuthModalOpen: true });
+        } else {
+          const next = !state.isAdminMode;
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem('jl_admin_mode', String(next));
+          }
+          set({ isAdminMode: next });
+        }
+      },
 
       setAdminAuthModalOpen: (open) => set({ isAdminAuthModalOpen: open }),
+
+      syncModulesFromSupabase: async () => {
+        try {
+          const remoteModules = await fetchModulesFromSupabase();
+          if (remoteModules && remoteModules.length > 0) {
+            set((state) => {
+              const remoteMap = new Map<string, JLModule>();
+              remoteModules.forEach((m) => remoteMap.set(m.id, m));
+
+              const merged = state.modules.map((m) => remoteMap.get(m.id) || m);
+              for (const rem of remoteModules) {
+                if (!state.modules.some((m) => m.id === rem.id)) {
+                  merged.push(rem);
+                }
+              }
+
+              return { modules: merged };
+            });
+          }
+        } catch (err) {
+          console.warn('[Store] Could not sync modules with Supabase:', err);
+        }
+      },
 
       syncCutsFromSupabase: async () => {
         set({ isSyncingWithSupabase: true });
@@ -624,10 +755,11 @@ export const useJLStore = create<JLStoreState>()(
   )
 );
 
-// Auto-sync cuts from Supabase cloud database upon client load
+// Auto-sync cuts and modules from Supabase cloud database upon client load
 if (typeof window !== 'undefined') {
   setTimeout(() => {
     void useJLStore.getState().syncCutsFromSupabase();
+    void useJLStore.getState().syncModulesFromSupabase();
   }, 50);
 }
 

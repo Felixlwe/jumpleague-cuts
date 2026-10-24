@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { Cut, Vector3D } from '@/types/jumpleague';
+import { Cut, JLModule, Vector3D, VoxelBlock } from '@/types/jumpleague';
 
 const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
 const supabaseUrl = rawUrl
@@ -204,6 +204,143 @@ export async function deleteCutFromSupabase(cutId: string): Promise<boolean> {
     return true;
   } catch (err) {
     console.error('[Supabase] Exception deleting cut:', err);
+    return false;
+  }
+}
+
+// ==============================================================================
+// MODULES SUPABASE CLOUD SYNC & CRUD
+// ==============================================================================
+
+export interface SupabaseModuleRow {
+  id: string;
+  short_code: string;
+  name: string;
+  difficulty: string;
+  blocks: VoxelBlock[];
+  spawn_point?: Vector3D | null;
+  finish_point?: Vector3D | null;
+  is_deleted: boolean;
+  created_at?: string;
+}
+
+export function mapDbRowToModule(row: Record<string, unknown>): JLModule {
+  const blocks = (Array.isArray(row.blocks) ? row.blocks : []) as VoxelBlock[];
+  let maxX = 0;
+  let maxY = 0;
+  let maxZ = 0;
+  for (const b of blocks) {
+    if (Math.abs(b.position.x) * 2 > maxX) maxX = Math.abs(b.position.x) * 2;
+    if (b.position.y > maxY) maxY = b.position.y;
+    if (b.position.z > maxZ) maxZ = b.position.z;
+  }
+
+  return {
+    id: String(row.id),
+    shortCode: String(row.short_code || row.id),
+    name: String(row.name || 'Unbenanntes Modul'),
+    difficulty: (row.difficulty || 'MEDIUM') as JLModule['difficulty'],
+    dimensions: {
+      x: maxX || 12,
+      y: maxY || 12,
+      z: maxZ || 24,
+    },
+    blockCount: blocks.length,
+    blocks,
+    spawnPoint: (row.spawn_point as Vector3D) || undefined,
+    finishPoint: (row.finish_point as Vector3D) || undefined,
+    isDeleted: Boolean(row.is_deleted),
+    createdAt: String(row.created_at || new Date().toISOString()),
+  };
+}
+
+export function mapModuleToDbRow(module: JLModule): SupabaseModuleRow {
+  return {
+    id: module.id,
+    short_code: module.shortCode || module.id,
+    name: module.name,
+    difficulty: module.difficulty,
+    blocks: module.blocks,
+    spawn_point: module.spawnPoint || null,
+    finish_point: module.finishPoint || null,
+    is_deleted: Boolean(module.isDeleted),
+    created_at: module.createdAt || new Date().toISOString(),
+  };
+}
+
+/**
+ * Loads all active modules from Supabase. Returns null if offline or table does not exist.
+ */
+export async function fetchModulesFromSupabase(): Promise<JLModule[] | null> {
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('modules')
+      .select('*')
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.warn('[Supabase] Modules table not ready or error:', error.message);
+      return null;
+    }
+
+    if (!data) return [];
+    return data.map(mapDbRowToModule);
+  } catch (err) {
+    console.warn('[Supabase] Exception fetching modules:', err);
+    return null;
+  }
+}
+
+/**
+ * Inserts or updates a module in Supabase (upsert).
+ */
+export async function upsertModuleInSupabase(
+  module: JLModule
+): Promise<boolean> {
+  if (!supabase) return false;
+
+  try {
+    const row = mapModuleToDbRow(module);
+    const { error } = await supabase.from('modules').upsert([row], {
+      onConflict: 'id',
+    });
+
+    if (error) {
+      console.warn('[Supabase] Error upserting module:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] Exception upserting module:', err);
+    return false;
+  }
+}
+
+/**
+ * Deletes a module in Supabase (sets is_deleted=true or hard deletes).
+ */
+export async function deleteModuleInSupabase(
+  moduleId: string
+): Promise<boolean> {
+  if (!supabase) return false;
+
+  try {
+    // Soft delete so existing references don't crash, and fallback hard delete
+    const { error } = await supabase
+      .from('modules')
+      .update({ is_deleted: true })
+      .eq('id', moduleId);
+
+    if (error) {
+      // Try hard delete if soft delete column doesn't match
+      await supabase.from('modules').delete().eq('id', moduleId);
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] Exception deleting module:', err);
     return false;
   }
 }

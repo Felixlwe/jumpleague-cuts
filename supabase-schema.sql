@@ -65,3 +65,61 @@ create policy "Cuts löschen erlauben"
 
 -- 4. Realtime aktivieren (optional, falls Live-Updates gewünscht)
 alter publication supabase_realtime add table public.cuts;
+
+-- ==============================================================================
+-- 5. Tabelle 'modules' erstellen
+-- ==============================================================================
+create table if not exists public.modules (
+    id text primary key,
+    short_code text not null,
+    name text not null,
+    difficulty text not null check (difficulty in ('EASY', 'MEDIUM', 'HARD', 'ULTRA')),
+    blocks jsonb not null default '[]'::jsonb,
+    spawn_point jsonb,
+    finish_point jsonb,
+    is_deleted boolean not null default false,
+    created_at timestamptz not null default now()
+);
+
+-- Performance-Indizes für schnelle Lookups
+create index if not exists idx_modules_difficulty on public.modules(difficulty);
+create index if not exists idx_modules_is_deleted on public.modules(is_deleted);
+create index if not exists idx_modules_created_at on public.modules(created_at desc);
+
+-- Row Level Security (RLS) aktivieren
+alter table public.modules enable row level security;
+
+-- Vorhandene Policies sicherheitshalber aufräumen
+drop policy if exists "Jeder darf Module lesen" on public.modules;
+drop policy if exists "Module anlegen erlauben" on public.modules;
+drop policy if exists "Module aktualisieren erlauben" on public.modules;
+drop policy if exists "Module löschen erlauben" on public.modules;
+
+-- Policy 1: Alle Besucher können aktive Module lesen (SELECT)
+create policy "Jeder darf Module lesen"
+    on public.modules
+    for select
+    using (true);
+
+-- Policy 2: Modul-Erstellung erlauben
+create policy "Module anlegen erlauben"
+    on public.modules
+    for insert
+    with check (true);
+
+-- Policy 3: Modul-Updates erlauben
+create policy "Module aktualisieren erlauben"
+    on public.modules
+    for update
+    using (true)
+    with check (true);
+
+-- Policy 4: Modul-Löschung erlauben
+create policy "Module löschen erlauben"
+    on public.modules
+    for delete
+    using (true);
+
+-- Realtime aktivieren für modules
+alter publication supabase_realtime add table public.modules;
+
