@@ -23,7 +23,10 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { useJLStore } from '@/store/useJLStore';
-import { MODULE_DIFFICULTY_CONFIG } from '@/constants/jumpleagueConfig';
+import {
+  MODULE_DIFFICULTY_CONFIG,
+  getModuleDifficultyConfig,
+} from '@/constants/jumpleagueConfig';
 import {
   INITIAL_MODULES,
   sortModulesNumerically,
@@ -592,7 +595,7 @@ export default function ModuleHubPage() {
 
             {visibleModules.map((mod) => {
               const isSelected = mod.id === selectedModuleId;
-              const diffCfg = MODULE_DIFFICULTY_CONFIG[mod.difficulty];
+              const diffCfg = getModuleDifficultyConfig(mod.difficulty);
 
               // Approved cuts in this module
               const moduleCuts = cuts.filter(

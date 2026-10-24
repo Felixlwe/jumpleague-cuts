@@ -1621,10 +1621,26 @@ export const VoxelModuleRenderer: React.FC = () => {
   const updateDraftMidPoint = useJLStore((s) => s.updateDraftMidPoint);
   const loadModuleBlocks = useJLStore((s) => s.loadModuleBlocks);
 
-  const currentModule = useMemo(
-    () => modules.find((m) => m.id === selectedModuleId) ?? modules[0],
-    [modules, selectedModuleId]
-  );
+  const currentModule = useMemo(() => {
+    if (!selectedModuleId) return modules[0] ?? null;
+    const target = selectedModuleId.trim().toLowerCase();
+    const cleanTarget = target.replace(/^#+/, '');
+    return (
+      modules.find((m) => {
+        const mId = m.id.toLowerCase();
+        const mClean = mId.replace(/^#+/, '');
+        const mShort = (m.shortCode || '').toLowerCase().replace(/^#+/, '');
+        return (
+          mId === target ||
+          mClean === cleanTarget ||
+          mShort === cleanTarget ||
+          mId === `#${cleanTarget}`
+        );
+      }) ??
+      modules[0] ??
+      null
+    );
+  }, [modules, selectedModuleId]);
 
   useEffect(() => {
     if (

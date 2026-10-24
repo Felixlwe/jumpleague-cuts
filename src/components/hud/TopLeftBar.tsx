@@ -4,20 +4,46 @@ import React, { useMemo } from 'react';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { useJLStore } from '@/store/useJLStore';
-import { MODULE_DIFFICULTY_CONFIG } from '@/constants/jumpleagueConfig';
+import {
+  MODULE_DIFFICULTY_CONFIG,
+  getModuleDifficultyConfig,
+} from '@/constants/jumpleagueConfig';
 import { DIAMOND_BOOTS_DATA_URI } from '@/constants/diamondBootsAsset';
 
 export const TopLeftBar: React.FC = () => {
   const modules = useJLStore((s) => s.modules);
   const selectedModuleId = useJLStore((s) => s.selectedModuleId);
 
-  const activeModule = useMemo(
-    () => modules.find((m) => m.id === selectedModuleId) ?? modules[0],
-    [modules, selectedModuleId]
-  );
+  const activeModule = useMemo(() => {
+    if (!selectedModuleId) return modules[0] ?? null;
+    const target = selectedModuleId.trim().toLowerCase();
+    const cleanTarget = target.replace(/^#+/, '');
+    return (
+      modules.find((m) => {
+        const mId = m.id.toLowerCase();
+        const mClean = mId.replace(/^#+/, '');
+        const mShort = (m.shortCode || '').toLowerCase().replace(/^#+/, '');
+        return (
+          mId === target ||
+          mClean === cleanTarget ||
+          mShort === cleanTarget ||
+          mId === `#${cleanTarget}`
+        );
+      }) ??
+      modules[0] ??
+      null
+    );
+  }, [modules, selectedModuleId]);
 
-  const activeDiffCfg = MODULE_DIFFICULTY_CONFIG[activeModule.difficulty];
-  const cleanName = activeModule.name.replace(/^[A-Z0-9]+\s*-\s*/i, '');
+  if (!activeModule) {
+    return null;
+  }
+
+  const activeDiffCfg = getModuleDifficultyConfig(activeModule.difficulty);
+  const cleanName = (activeModule.name || activeModule.id || 'Modul').replace(
+    /^[A-Z0-9]+\s*-\s*/i,
+    ''
+  );
 
   return (
     <div className="pointer-events-auto flex flex-wrap items-center gap-2.5">

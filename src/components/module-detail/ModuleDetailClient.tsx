@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useSyncExternalStore } from 'react';
+import React, { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { AlertTriangle, ArrowLeft } from 'lucide-react';
@@ -86,7 +86,11 @@ export const ModuleDetailClient: React.FC<ModuleDetailClientProps> = ({
   const selectedModuleId = useJLStore((s) => s.selectedModuleId);
   const selectModule = useJLStore((s) => s.selectModule);
   const addModule = useJLStore((s) => s.addModule);
+  const loadModuleBlocks = useJLStore((s) => s.loadModuleBlocks);
   const isSyncingWithSupabase = useJLStore((s) => s.isSyncingWithSupabase);
+
+  const [isLoadingModule, setIsLoadingModule] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const matchedModule = useMemo(() => {
     if (!rawModuleId) return null;
@@ -107,28 +111,56 @@ export const ModuleDetailClient: React.FC<ModuleDetailClientProps> = ({
     );
   }, [modules, rawModuleId]);
 
-  // If not found in current store list, try fetching by ID directly from Supabase
+  // When module is found in store, activate it and load 3D blocks if missing
+  useEffect(() => {
+    if (!isMounted) return;
+    if (matchedModule) {
+      if (selectedModuleId !== matchedModule.id) {
+        selectModule(matchedModule.id);
+      }
+      if (!matchedModule.blocks || matchedModule.blocks.length === 0) {
+        void loadModuleBlocks(matchedModule.id);
+      }
+      setIsLoadingModule(false);
+      setLoadError(null);
+    }
+  }, [isMounted, matchedModule, selectedModuleId, selectModule, loadModuleBlocks]);
+
+  // If not found in current store list, fetch by ID directly from Supabase (or on-demand from modules.top)
   useEffect(() => {
     if (!isMounted || matchedModule || !rawModuleId) return;
     let isCancelled = false;
-    fetchModuleById(rawModuleId).then((mod) => {
-      if (isCancelled || !mod) return;
-      void addModule(mod);
-    });
+    setIsLoadingModule(true);
+
+    fetchModuleById(rawModuleId)
+      .then((mod) => {
+        if (isCancelled) return;
+        if (mod) {
+          void addModule(mod);
+          setIsLoadingModule(false);
+          setLoadError(null);
+        } else {
+          // If Supabase initial sync is still running, let it finish before failing
+          if (!isSyncingWithSupabase) {
+            setIsLoadingModule(false);
+            setLoadError(`Modul "${rawModuleId}" konnte nicht gefunden werden.`);
+          }
+        }
+      })
+      .catch((err) => {
+        if (isCancelled) return;
+        if (!isSyncingWithSupabase) {
+          setIsLoadingModule(false);
+          setLoadError(err?.message || 'Fehler beim Laden des Moduls.');
+        }
+      });
+
     return () => {
       isCancelled = true;
     };
-  }, [isMounted, matchedModule, rawModuleId, addModule]);
+  }, [isMounted, matchedModule, rawModuleId, addModule, isSyncingWithSupabase]);
 
-  // Automatically load and activate the module specified by the URL parameter [id]
-  useEffect(() => {
-    if (!isMounted || !matchedModule) return;
-    if (selectedModuleId !== matchedModule.id) {
-      selectModule(matchedModule.id);
-    }
-  }, [isMounted, matchedModule, selectedModuleId, selectModule]);
-
-  if (!isMounted || (!matchedModule && isSyncingWithSupabase)) {
+  if (!isMounted || isLoadingModule || (!matchedModule && isSyncingWithSupabase)) {
     return (
       <main className="relative flex h-screen w-screen items-center justify-center overflow-hidden bg-[#1c202d] font-mono text-xs text-zinc-400">
         <div className="flex flex-col items-center gap-2.5">
@@ -154,7 +186,8 @@ export const ModuleDetailClient: React.FC<ModuleDetailClientProps> = ({
               Modul &bdquo;{rawModuleId}&ldquo; existiert nicht
             </h1>
             <p className="text-xs text-zinc-400">
-              Das angeforderte JumpLeague-Modul konnte im Katalog nicht geladen werden.
+              {loadError ||
+                'Das angeforderte JumpLeague-Modul konnte im Katalog nicht geladen werden.'}
             </p>
           </div>
           <Link

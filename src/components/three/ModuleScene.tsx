@@ -20,10 +20,26 @@ const SceneCameraController: React.FC = () => {
   const isDraggingInScene = useJLStore((s) => s.isDraggingInScene);
   const setLiveCameraState = useJLStore((s) => s.setLiveCameraState);
 
-  const currentModule = useMemo(
-    () => modules.find((m) => m.id === selectedModuleId) ?? modules[0],
-    [modules, selectedModuleId]
-  );
+  const currentModule = useMemo(() => {
+    if (!selectedModuleId) return modules[0] ?? null;
+    const target = selectedModuleId.trim().toLowerCase();
+    const cleanTarget = target.replace(/^#+/, '');
+    return (
+      modules.find((m) => {
+        const mId = m.id.toLowerCase();
+        const mClean = mId.replace(/^#+/, '');
+        const mShort = (m.shortCode || '').toLowerCase().replace(/^#+/, '');
+        return (
+          mId === target ||
+          mClean === cleanTarget ||
+          mShort === cleanTarget ||
+          mId === `#${cleanTarget}`
+        );
+      }) ??
+      modules[0] ??
+      null
+    );
+  }, [modules, selectedModuleId]);
 
   // Smoothly glide via setLookAt (smoothTime = 0.35) when a Cut is selected
   useEffect(() => {
@@ -34,7 +50,7 @@ const SceneCameraController: React.FC = () => {
 
     if (selectedCutId) {
       const cut = cuts.find((c) => c.id === selectedCutId);
-      if (cut) {
+      if (cut && cut.cameraPosition && cut.cameraTarget) {
         const { cameraPosition: pos, cameraTarget: target } = cut;
         void controls.setLookAt(
           pos.x,
@@ -59,7 +75,7 @@ const SceneCameraController: React.FC = () => {
     const state = useJLStore.getState();
     if (state.selectedCutId) {
       const activeCut = state.cuts.find((c) => c.id === state.selectedCutId);
-      if (activeCut && activeCut.moduleId === selectedModuleId) {
+      if (activeCut && activeCut.moduleId === selectedModuleId && activeCut.cameraPosition && activeCut.cameraTarget) {
         void controls.setLookAt(
           activeCut.cameraPosition.x,
           activeCut.cameraPosition.y,
@@ -73,10 +89,13 @@ const SceneCameraController: React.FC = () => {
       }
     }
 
-    const midZ = currentModule.dimensions.z * 0.46;
-    const camX = Math.max(18, currentModule.dimensions.z * 0.45);
-    const camY = Math.max(13, currentModule.dimensions.y * 1.45);
-    const camZ = midZ - currentModule.dimensions.z * 0.25;
+    const dims = currentModule?.dimensions || { x: 12, y: 12, z: 24 };
+    const dimZ = Number(dims.z) || 24;
+    const dimY = Number(dims.y) || 12;
+    const midZ = dimZ * 0.46;
+    const camX = Math.max(18, dimZ * 0.45);
+    const camY = Math.max(13, dimY * 1.45);
+    const camZ = midZ - dimZ * 0.25;
 
     void controls.setLookAt(camX, camY, camZ, 0, 4.2, midZ, true);
   }, [selectedModuleId, cameraResetCounter, currentModule]);

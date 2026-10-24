@@ -243,11 +243,11 @@ function resolveModelDefinition(
   for (const k of Object.keys(textures)) {
     let val = textures[k];
     let depth = 0;
-    while (val && val.startsWith('#') && depth < 10) {
+    while (typeof val === 'string' && val.startsWith('#') && depth < 10) {
       val = textures[val.slice(1)];
       depth++;
     }
-    textures[k] = val ? val.replace(/^minecraft:/, '') : val;
+    textures[k] = typeof val === 'string' ? val.replace(/^minecraft:/, '') : String(val || '');
   }
 
   let elements: any[] | null = null;
@@ -320,7 +320,8 @@ export function buildBlockGeometry(
   neighborSolidMap: NeighborSolidMap,
   mcmeta: McmetaData
 ): THREE.BufferGeometry | null {
-  const { name, props } = parseBlockIdentifier(blockTypeString);
+  try {
+    const { name, props } = parseBlockIdentifier(blockTypeString);
 
   // Air / Barrier / Void blocks return null
   if (
@@ -558,8 +559,10 @@ export function buildBlockGeometry(
 
     // Process each 3D element box
     for (const el of finalElements) {
-      const from = el.from as [number, number, number];
-      const to = el.to as [number, number, number];
+      if (!el || typeof el !== 'object' || !el.faces || typeof el.faces !== 'object') continue;
+
+      const from = Array.isArray(el.from) && el.from.length >= 3 ? el.from : [0, 0, 0];
+      const to = Array.isArray(el.to) && el.to.length >= 3 ? el.to : [16, 16, 16];
       const [x1, y1, z1] = from;
       const [x2, y2, z2] = to;
 
@@ -627,25 +630,32 @@ export function buildBlockGeometry(
       };
 
       for (const [faceName, faceData] of Object.entries(el.faces as Record<string, any>)) {
+        if (!faceData || typeof faceData !== 'object') continue;
         const faceConfig = FACE_CORNERS[faceName];
         if (!faceConfig) continue;
 
-        let rawTex = faceData.texture || '#all';
+        let rawTex = typeof faceData.texture === 'string' ? faceData.texture : '#all';
         if (rawTex.startsWith('#')) {
           rawTex = textures[rawTex.slice(1)] || rawTex.slice(1);
         }
-        const texClean = rawTex.replace(/^minecraft:/, '');
+        const texClean = typeof rawTex === 'string' ? rawTex.replace(/^minecraft:/, '') : 'stone';
 
         let uvBox = atlasData[texClean] || atlasData[`block/${texClean}`] || atlasData[`minecraft:block/${texClean}`];
-        if (!uvBox) {
+        if (!uvBox || !Array.isArray(uvBox) || uvBox.length < 4) {
           // Fallback to oak_planks or stone if missing from atlas
           uvBox = atlasData['block/oak_planks'] || atlasData['block/stone'] || [0, 0, 16, 16];
         }
 
-        const [px, py, pw, ph] = uvBox;
+        const px = Number(uvBox[0]) || 0;
+        const py = Number(uvBox[1]) || 0;
+        const pw = Number(uvBox[2]) || 16;
+        const ph = Number(uvBox[3]) || 16;
 
-        const faceUv: [number, number, number, number] = faceData.uv || faceConfig.defaultUv;
-        const [u1, v1, u2, v2] = faceUv;
+        const rawFaceUv = Array.isArray(faceData.uv) && faceData.uv.length >= 4 ? faceData.uv : faceConfig.defaultUv;
+        const u1 = Number(rawFaceUv[0]) || 0;
+        const v1 = Number(rawFaceUv[1]) || 0;
+        const u2 = Number(rawFaceUv[2]) || 16;
+        const v2 = Number(rawFaceUv[3]) || 16;
 
         let uvCorners: [number, number][] = [
           [u1, v1],
@@ -655,7 +665,7 @@ export function buildBlockGeometry(
         ];
 
         // UV Rotation (90, 180, 270)
-        const uvRot = faceData.rotation || 0;
+        const uvRot = Number(faceData.rotation) || 0;
         if (uvRot === 90) {
           uvCorners = [uvCorners[3], uvCorners[0], uvCorners[1], uvCorners[2]];
         } else if (uvRot === 180) {
@@ -693,15 +703,17 @@ export function buildBlockGeometry(
         const quadUv: [number, number][] = [];
 
         for (let c = 0; c < 4; c++) {
-          let pt: [number, number, number] = [...faceConfig.corners[c]];
+          const corner = faceConfig.corners[c];
+          if (!corner) continue;
+          let pt: [number, number, number] = [...corner];
           let nm: [number, number, number] = [...faceConfig.norm];
 
           // 1. Element rotation
-          if (el.rotation) {
-            const elOrigin = el.rotation.origin || [8, 8, 8];
+          if (el.rotation && typeof el.rotation === 'object') {
+            const elOrigin = Array.isArray(el.rotation.origin) && el.rotation.origin.length >= 3 ? el.rotation.origin : [8, 8, 8];
             const elAxis = el.rotation.axis || 'y';
-            const elAngle = el.rotation.angle || 0;
-            const elRescale = el.rotation.rescale || false;
+            const elAngle = Number(el.rotation.angle) || 0;
+            const elRescale = Boolean(el.rotation.rescale);
             pt = rotatePoint(pt, elOrigin, elAxis, elAngle, elRescale);
             nm = rotatePoint(nm, [0, 0, 0], elAxis, elAngle, false);
           }
@@ -735,11 +747,13 @@ export function buildBlockGeometry(
           quadNorm.push(nm);
 
           // 6. Atlas UV calculation
-          const [cu, cv] = uvCorners[c];
+          const [cu, cv] = uvCorners[c] || [0, 0];
           const U = (px + (cu / 16) * pw) / atlasWidth;
           const V = (py + (cv / 16) * ph) / atlasHeight;
           quadUv.push([U, V]);
         }
+
+        if (quadPos.length < 4) continue;
 
         // Two triangles: (0, 1, 2) and (0, 2, 3)
         const indices = [0, 1, 2, 0, 2, 3];
@@ -765,6 +779,10 @@ export function buildBlockGeometry(
 
   geometryCache.set(cacheKey, geometry);
   return geometry;
+  } catch (err) {
+    console.warn(`[mcmetaLoader] Failed to build block geometry for "${blockTypeString}":`, err);
+    return null;
+  }
 }
 
 /**

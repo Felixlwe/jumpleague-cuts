@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Cut, JLModule, Vector3D, VoxelBlock } from '@/types/jumpleague';
+import { parseBase64Schematic } from './schematicParser';
 
 const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
 const supabaseUrl = rawUrl
@@ -363,28 +364,85 @@ export async function fetchModulesFromSupabase(): Promise<FetchModulesResult | n
  * Loads a single module with its full 3D voxel blocks array from Supabase by ID.
  */
 export async function fetchModuleById(id: string): Promise<JLModule | null> {
-  if (!supabase) return null;
+  const trimmed = id ? id.trim() : '';
+  if (!trimmed) return null;
+  const cleanId = trimmed.replace(/^#+/, '');
+  const searchKeys = Array.from(new Set([cleanId, `#${cleanId}`, trimmed]));
 
-  try {
-    const cleanId = id.trim().replace(/^#+/, '');
-    const { data, error } = await supabase
-      .from('modules')
-      .select('*')
-      .or(`id.eq.${cleanId},id.eq.%23${cleanId}`)
-      .limit(1)
-      .maybeSingle();
+  if (supabase) {
+    try {
+      // 1. Try finding by id
+      let { data, error } = await supabase
+        .from('modules')
+        .select('*')
+        .in('id', searchKeys)
+        .limit(1)
+        .maybeSingle();
 
-    if (error) {
-      console.warn('[Supabase] Error fetching module by id:', id, error.message);
-      return null;
+      // 2. Try finding by short_code
+      if (!data && !error) {
+        const byShort = await supabase
+          .from('modules')
+          .select('*')
+          .in('short_code', searchKeys)
+          .limit(1)
+          .maybeSingle();
+        data = byShort.data;
+        error = byShort.error;
+      }
+
+      if (error) {
+        console.warn('[Supabase] Error fetching module by id:', id, error.message);
+      }
+
+      if (data) {
+        return mapDbRowToModule(data);
+      }
+    } catch (err) {
+      console.warn('[Supabase] Exception fetching module by id:', id, err);
     }
-
-    if (!data) return null;
-    return mapDbRowToModule(data);
-  } catch (err) {
-    console.warn('[Supabase] Exception fetching module by id:', id, err);
-    return null;
   }
+
+  // 3. Fallback: If numeric ID (from modules.top 1.20) and not found in Supabase or Supabase offline,
+  // fetch directly via /api/import-module on client
+  if (typeof window !== 'undefined' && /^\d+$/.test(cleanId)) {
+    try {
+      const res = await fetch('/api/import-module', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ moduleId: cleanId, source: '120' }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.base64) {
+          const parsed = await parseBase64Schematic(json.base64, `Modul ${cleanId}`, {
+            shortCode: `#${cleanId}`,
+            name: `Modul ${cleanId}`,
+          });
+          const mod: JLModule = {
+            id: cleanId,
+            shortCode: `#${cleanId}`,
+            name: parsed.name || `Modul ${cleanId}`,
+            difficulty: parsed.module?.difficulty || 'EASY',
+            dimensions: parsed.dimensions,
+            blockCount: parsed.blocks.length,
+            blocks: parsed.blocks,
+            spawnPoint: parsed.module?.spawnPoint,
+            finishPoint: parsed.module?.finishPoint,
+            createdAt: new Date().toISOString(),
+          };
+          if (supabase) {
+            void upsertModuleInSupabase(mod);
+          }
+          return mod;
+        }
+      }
+    } catch (importErr) {
+      console.warn('[Supabase] Fallback import from modules.top failed for id:', id, importErr);
+    }
+  }
+
+  return null;
 }
 
 /**

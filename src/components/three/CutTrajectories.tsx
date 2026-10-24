@@ -6,7 +6,10 @@ import { CatmullRomLine } from '@react-three/drei';
 import { ThreeEvent } from '@react-three/fiber';
 import { Cut, Vector3D, VoxelBlock } from '@/types/jumpleague';
 import { useJLStore, doesCutMatchFilters } from '@/store/useJLStore';
-import { CUT_DIFFICULTY_CONFIG } from '@/constants/jumpleagueConfig';
+import {
+  CUT_DIFFICULTY_CONFIG,
+  getCutDifficultyConfig,
+} from '@/constants/jumpleagueConfig';
 import { WorldHtml } from './WorldHtml';
 
 export interface ComputedTrajectory {
@@ -132,7 +135,7 @@ const SingleCutTrajectory: React.FC<SingleTrajectoryProps> = ({
   onSelect,
   onHover,
 }) => {
-  const diffConfig = CUT_DIFFICULTY_CONFIG[cut.difficulty];
+  const diffConfig = getCutDifficultyConfig(cut.difficulty);
 
   const { points, apex, startSurface, endSurface } = useMemo(
     () =>
@@ -323,15 +326,33 @@ export const CutTrajectories: React.FC = () => {
   const draftMidPoints = useJLStore((s) => s.draftMidPoints);
   const draftEndBlock = useJLStore((s) => s.draftEndBlock);
 
-  const currentModule = useMemo(
-    () => modules.find((m) => m.id === selectedModuleId) ?? modules[0],
-    [modules, selectedModuleId]
-  );
+  const currentModule = useMemo(() => {
+    if (!selectedModuleId) return modules[0] ?? null;
+    const target = selectedModuleId.trim().toLowerCase();
+    const cleanTarget = target.replace(/^#+/, '');
+    return (
+      modules.find((m) => {
+        const mId = m.id.toLowerCase();
+        const mClean = mId.replace(/^#+/, '');
+        const mShort = (m.shortCode || '').toLowerCase().replace(/^#+/, '');
+        return (
+          mId === target ||
+          mClean === cleanTarget ||
+          mShort === cleanTarget ||
+          mId === `#${cleanTarget}`
+        );
+      }) ??
+      modules[0] ??
+      null
+    );
+  }, [modules, selectedModuleId]);
 
   // Filter APPROVED cuts of the active module matching current FilterState
   const visibleCuts = useMemo(() => {
+    const selClean = (selectedModuleId || '').trim().toLowerCase().replace(/^#+/, '');
     return cuts.filter((cut) => {
-      if (cut.moduleId !== selectedModuleId) return false;
+      const cutModClean = (cut.moduleId || '').trim().toLowerCase().replace(/^#+/, '');
+      if (cut.moduleId !== selectedModuleId && cutModClean !== selClean) return false;
 
       if (activeMode !== 'ADMIN') {
         if (cut.status !== 'APPROVED' && cut.id !== selectedCutId) {
@@ -355,14 +376,14 @@ export const CutTrajectories: React.FC = () => {
       draftStartBlock,
       draftEndBlock,
       draftMidPoints,
-      currentModule.blocks
+      currentModule?.blocks
     );
   }, [
     activeMode,
     draftStartBlock,
     draftEndBlock,
     draftMidPoints,
-    currentModule.blocks,
+    currentModule?.blocks,
   ]);
 
   return (

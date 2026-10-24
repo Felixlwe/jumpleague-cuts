@@ -80,6 +80,30 @@ export const MODULE_DIFFICULTY_CONFIG: Record<
   },
 };
 
+export function getModuleDifficultyConfig(diff?: string | null): {
+  label: string;
+  color: string;
+  badgeClass: string;
+} {
+  const norm = String(diff || '').toUpperCase().trim();
+  if (norm === 'EASY') return MODULE_DIFFICULTY_CONFIG.EASY;
+  if (norm === 'NORMAL' || norm === 'MEDIUM') return MODULE_DIFFICULTY_CONFIG.MEDIUM;
+  if (norm === 'HARD') return MODULE_DIFFICULTY_CONFIG.HARD;
+  if (norm === 'ULTRA') return MODULE_DIFFICULTY_CONFIG.ULTRA;
+  return MODULE_DIFFICULTY_CONFIG.MEDIUM;
+}
+
+export function getCutDifficultyConfig(
+  diff?: string | null
+): (typeof CUT_DIFFICULTY_CONFIG)[CutDifficulty] {
+  const norm = String(diff || '').toUpperCase().trim();
+  if (norm === 'SAFE') return CUT_DIFFICULTY_CONFIG.SAFE;
+  if (norm === 'MEDIUM') return CUT_DIFFICULTY_CONFIG.MEDIUM;
+  if (norm === 'HEAVY') return CUT_DIFFICULTY_CONFIG.HEAVY;
+  if (norm === 'PIXEL_PERFECT' || norm === 'PIXELPERFECT') return CUT_DIFFICULTY_CONFIG.PIXEL_PERFECT;
+  return CUT_DIFFICULTY_CONFIG.MEDIUM;
+}
+
 export const MOVEMENT_TECH_CONFIG: Record<
   MovementTech,
   {
