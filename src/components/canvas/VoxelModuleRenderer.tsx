@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import * as THREE from 'three';
 import { Edges } from '@react-three/drei';
 import { ThreeEvent } from '@react-three/fiber';
 import { VoxelBlock, Vector3D } from '@/types/jumpleague';
@@ -121,6 +122,58 @@ function getNeighborConnections(
   };
 }
 
+const voxelGeometryCache = new Map<string, THREE.BufferGeometry>();
+
+/**
+ * Creates or retrieves a cached BoxGeometry with proportional UV mapping
+ * so textures are not stretched or distorted on thin/irregular voxels.
+ */
+function getVoxelBoxGeometry(
+  width: number,
+  height: number,
+  depth: number,
+  vOffset: number = 0
+): THREE.BufferGeometry {
+  const key = `${width}_${height}_${depth}_${vOffset}`;
+  const existing = voxelGeometryCache.get(key);
+  if (existing) return existing;
+
+  const geo = new THREE.BoxGeometry(width, height, depth);
+  const uvs = geo.attributes.uv;
+  const uvArray = uvs.array as Float32Array;
+
+  const faceDims: [number, number][] = [
+    [depth, height], // Face 0: +X (Right)
+    [depth, height], // Face 1: -X (Left)
+    [width, depth],  // Face 2: +Y (Top)
+    [width, depth],  // Face 3: -Y (Bottom)
+    [width, height], // Face 4: +Z (Front)
+    [width, height], // Face 5: -Z (Back)
+  ];
+
+  for (let face = 0; face < 6; face++) {
+    const [fw, fh] = faceDims[face];
+    const offset = face * 8;
+    const vMin = vOffset;
+    const vMax = vOffset + Math.min(1, fh);
+    const uMin = 0;
+    const uMax = Math.min(1, fw);
+
+    uvArray[offset + 0] = uMin;
+    uvArray[offset + 1] = vMax;
+    uvArray[offset + 2] = uMax;
+    uvArray[offset + 3] = vMax;
+    uvArray[offset + 4] = uMin;
+    uvArray[offset + 5] = vMin;
+    uvArray[offset + 6] = uMax;
+    uvArray[offset + 7] = vMin;
+  }
+
+  uvs.needsUpdate = true;
+  voxelGeometryCache.set(key, geo);
+  return geo;
+}
+
 interface SingleVoxelProps {
   block: VoxelBlock;
   blockMap: Map<string, VoxelBlock>;
@@ -190,7 +243,7 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
 
   // Determine top surface elevation for cut selection highlight plates
   const topSurfaceElevation = useMemo(() => {
-    if (blockTypeUpper.endsWith('_SLAB')) {
+    if (blockTypeUpper.endsWith('_SLAB') || blockTypeUpper === 'SLAB') {
       if (blockState.slabType === 'bottom') return 0.0;
       return 0.5;
     }
@@ -204,12 +257,54 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       if (blockState.half === 'bottom') return -0.3125;
       return 0.5;
     }
+    // Ambosse, Zäune, Mauern, Treppen & Vollblöcke haben Oberfläche bei y = 0.5
     return 0.5;
   }, [blockTypeUpper, blockState]);
 
   const renderGeometryByType = () => {
-    // 1. Slabs (_slab): 1 x 0.5 x 1 (bottom: y-0.25, top: y+0.25, double: 1x1x1)
-    if (blockTypeUpper.endsWith('_SLAB')) {
+    // 0. Ambosse (_anvil, anvil, chipped_anvil, damaged_anvil): Detailreiches 3D-Modell mit Fuß, Hals & Kopf
+    if (blockTypeUpper.includes('ANVIL')) {
+      const isNorthSouth =
+        blockState.facing === 'north' || blockState.facing === 'south';
+
+      const baseW = isNorthSouth ? 0.75 : 0.625;
+      const baseD = isNorthSouth ? 0.625 : 0.75;
+      const neckW = isNorthSouth ? 0.25 : 0.5;
+      const neckD = isNorthSouth ? 0.5 : 0.25;
+      const headW = isNorthSouth ? 0.625 : 1.0;
+      const headD = isNorthSouth ? 1.0 : 0.625;
+
+      return (
+        <group>
+          {/* Amboss-Fußplatte */}
+          <mesh
+            position={[0, -0.375, 0]}
+            geometry={getVoxelBoxGeometry(baseW, 0.25, baseD)}
+            material={material}
+            castShadow
+            receiveShadow
+          />
+          {/* Amboss-Taille / Steg */}
+          <mesh
+            position={[0, -0.09375, 0]}
+            geometry={getVoxelBoxGeometry(neckW, 0.3125, neckD)}
+            material={material}
+            castShadow
+          />
+          {/* Amboss-Kopf mit Schlagfläche (Top-Texture) */}
+          <mesh
+            position={[0, 0.28125, 0]}
+            geometry={getVoxelBoxGeometry(headW, 0.4375, headD)}
+            material={material}
+            castShadow
+            receiveShadow
+          />
+        </group>
+      );
+    }
+
+    // 1. Slabs (_slab): 1 x 0.5 x 1 mit proportionaler UV-Texturierung
+    if (blockTypeUpper.endsWith('_SLAB') || blockTypeUpper === 'SLAB') {
       if (blockState.slabType === 'double') {
         return (
           <mesh material={material} castShadow receiveShadow>
@@ -217,16 +312,21 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
           </mesh>
         );
       }
-      const slabY = blockState.slabType === 'top' ? 0.25 : -0.25;
+      const isTop = blockState.slabType === 'top';
+      const slabY = isTop ? 0.25 : -0.25;
       return (
-        <mesh position={[0, slabY, 0]} material={material} castShadow receiveShadow>
-          <boxGeometry args={[1, 0.5, 1]} />
-        </mesh>
+        <mesh
+          position={[0, slabY, 0]}
+          geometry={getVoxelBoxGeometry(1, 0.5, 1, isTop ? 0.5 : 0)}
+          material={material}
+          castShadow
+          receiveShadow
+        />
       );
     }
 
-    // 2. Stairs (_stairs): Basis-Slab (1 x 0.5 x 1) + halbe Stufe (1 x 0.5 x 0.5), rotated by facing and half
-    if (blockTypeUpper.endsWith('_STAIRS')) {
+    // 2. Stairs (_stairs): Basis-Slab (1 x 0.5 x 1) + halbe Stufe (1 x 0.5 x 0.5), rotiert nach facing und half
+    if (blockTypeUpper.endsWith('_STAIRS') || blockTypeUpper === 'STAIRS') {
       const isUpright = blockState.half === 'bottom';
       const baseY = isUpright ? -0.25 : 0.25;
       const stepY = isUpright ? 0.25 : -0.25;
@@ -250,104 +350,159 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
 
       return (
         <group>
-          {/* Base half-slab */}
-          <mesh position={[0, baseY, 0]} material={material} castShadow receiveShadow>
-            <boxGeometry args={[1, 0.5, 1]} />
-          </mesh>
-          {/* Step block */}
-          <mesh position={stepPos} material={material} castShadow receiveShadow>
-            <boxGeometry args={stepSize} />
-          </mesh>
+          {/* Basis Halbstufe */}
+          <mesh
+            position={[0, baseY, 0]}
+            geometry={getVoxelBoxGeometry(1, 0.5, 1, isUpright ? 0 : 0.5)}
+            material={material}
+            castShadow
+            receiveShadow
+          />
+          {/* Obere Stufe */}
+          <mesh
+            position={stepPos}
+            geometry={getVoxelBoxGeometry(
+              stepSize[0],
+              stepSize[1],
+              stepSize[2],
+              isUpright ? 0.5 : 0
+            )}
+            material={material}
+            castShadow
+            receiveShadow
+          />
         </group>
       );
     }
 
-    // 3. Fences (_fence): Mittelpfosten (0.25 x 1 x 0.25) PLUS Verbindungsstreben zu Nachbarblöcken
-    if (blockTypeUpper.endsWith('_FENCE')) {
+    // 3. Fences (_fence): Mittelpfosten (0.25 x 1 x 0.25) PLUS Verbindungsstreben mit unverzerrter UV
+    if (blockTypeUpper.endsWith('_FENCE') || blockTypeUpper === 'FENCE') {
       return (
         <group>
           {/* Mittelpfosten */}
-          <mesh material={material} castShadow receiveShadow>
-            <boxGeometry args={[0.25, 1, 0.25]} />
-          </mesh>
+          <mesh
+            geometry={getVoxelBoxGeometry(0.25, 1, 0.25)}
+            material={material}
+            castShadow
+            receiveShadow
+          />
 
           {/* North Streben (-Z) */}
           {connections.north && (
             <group>
-              <mesh position={[0, 0.22, -0.25]} material={material} castShadow>
-                <boxGeometry args={[0.125, 0.125, 0.5]} />
-              </mesh>
-              <mesh position={[0, -0.22, -0.25]} material={material} castShadow>
-                <boxGeometry args={[0.125, 0.125, 0.5]} />
-              </mesh>
+              <mesh
+                position={[0, 0.22, -0.25]}
+                geometry={getVoxelBoxGeometry(0.125, 0.125, 0.5)}
+                material={material}
+                castShadow
+              />
+              <mesh
+                position={[0, -0.22, -0.25]}
+                geometry={getVoxelBoxGeometry(0.125, 0.125, 0.5)}
+                material={material}
+                castShadow
+              />
             </group>
           )}
 
           {/* South Streben (+Z) */}
           {connections.south && (
             <group>
-              <mesh position={[0, 0.22, 0.25]} material={material} castShadow>
-                <boxGeometry args={[0.125, 0.125, 0.5]} />
-              </mesh>
-              <mesh position={[0, -0.22, 0.25]} material={material} castShadow>
-                <boxGeometry args={[0.125, 0.125, 0.5]} />
-              </mesh>
+              <mesh
+                position={[0, 0.22, 0.25]}
+                geometry={getVoxelBoxGeometry(0.125, 0.125, 0.5)}
+                material={material}
+                castShadow
+              />
+              <mesh
+                position={[0, -0.22, 0.25]}
+                geometry={getVoxelBoxGeometry(0.125, 0.125, 0.5)}
+                material={material}
+                castShadow
+              />
             </group>
           )}
 
           {/* East Streben (+X) */}
           {connections.east && (
             <group>
-              <mesh position={[0.25, 0.22, 0]} material={material} castShadow>
-                <boxGeometry args={[0.5, 0.125, 0.125]} />
-              </mesh>
-              <mesh position={[0.25, -0.22, 0]} material={material} castShadow>
-                <boxGeometry args={[0.5, 0.125, 0.125]} />
-              </mesh>
+              <mesh
+                position={[0.25, 0.22, 0]}
+                geometry={getVoxelBoxGeometry(0.5, 0.125, 0.125)}
+                material={material}
+                castShadow
+              />
+              <mesh
+                position={[0.25, -0.22, 0]}
+                geometry={getVoxelBoxGeometry(0.5, 0.125, 0.125)}
+                material={material}
+                castShadow
+              />
             </group>
           )}
 
           {/* West Streben (-X) */}
           {connections.west && (
             <group>
-              <mesh position={[-0.25, 0.22, 0]} material={material} castShadow>
-                <boxGeometry args={[0.5, 0.125, 0.125]} />
-              </mesh>
-              <mesh position={[-0.25, -0.22, 0]} material={material} castShadow>
-                <boxGeometry args={[0.5, 0.125, 0.125]} />
-              </mesh>
+              <mesh
+                position={[-0.25, 0.22, 0]}
+                geometry={getVoxelBoxGeometry(0.5, 0.125, 0.125)}
+                material={material}
+                castShadow
+              />
+              <mesh
+                position={[-0.25, -0.22, 0]}
+                geometry={getVoxelBoxGeometry(0.5, 0.125, 0.125)}
+                material={material}
+                castShadow
+              />
             </group>
           )}
         </group>
       );
     }
 
-    // 4. Walls (_wall): Mittelpfosten (0.3125 x 1 x 0.3125) PLUS Verbindungsstreben
-    if (blockTypeUpper.endsWith('_WALL')) {
+    // 4. Walls (_wall): Mittelpfosten (0.3125 x 1 x 0.3125) PLUS Verbindungsstege mit nativer UV
+    if (blockTypeUpper.endsWith('_WALL') || blockTypeUpper === 'WALL') {
       return (
         <group>
-          <mesh material={material} castShadow receiveShadow>
-            <boxGeometry args={[0.3125, 1, 0.3125]} />
-          </mesh>
+          <mesh
+            geometry={getVoxelBoxGeometry(0.3125, 1, 0.3125)}
+            material={material}
+            castShadow
+            receiveShadow
+          />
           {connections.north && (
-            <mesh position={[0, 0, -0.25]} material={material} castShadow>
-              <boxGeometry args={[0.25, 0.875, 0.5]} />
-            </mesh>
+            <mesh
+              position={[0, 0, -0.25]}
+              geometry={getVoxelBoxGeometry(0.25, 0.875, 0.5)}
+              material={material}
+              castShadow
+            />
           )}
           {connections.south && (
-            <mesh position={[0, 0, 0.25]} material={material} castShadow>
-              <boxGeometry args={[0.25, 0.875, 0.5]} />
-            </mesh>
+            <mesh
+              position={[0, 0, 0.25]}
+              geometry={getVoxelBoxGeometry(0.25, 0.875, 0.5)}
+              material={material}
+              castShadow
+            />
           )}
           {connections.east && (
-            <mesh position={[0.25, 0, 0]} material={material} castShadow>
-              <boxGeometry args={[0.5, 0.875, 0.25]} />
-            </mesh>
+            <mesh
+              position={[0.25, 0, 0]}
+              geometry={getVoxelBoxGeometry(0.5, 0.875, 0.25)}
+              material={material}
+              castShadow
+            />
           )}
           {connections.west && (
-            <mesh position={[-0.25, 0, 0]} material={material} castShadow>
-              <boxGeometry args={[0.5, 0.875, 0.25]} />
-            </mesh>
+            <mesh
+              position={[-0.25, 0, 0]}
+              geometry={getVoxelBoxGeometry(0.5, 0.875, 0.25)}
+              material={material}
+              castShadow
+            />
           )}
         </group>
       );
@@ -357,7 +512,8 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
     if (
       blockTypeUpper === 'IRON_BARS' ||
       blockTypeUpper.endsWith('_BARS') ||
-      blockTypeUpper.endsWith('_PANE')
+      blockTypeUpper.endsWith('_PANE') ||
+      blockTypeUpper === 'BARS'
     ) {
       const hasAnyConnection =
         connections.north ||
@@ -367,41 +523,60 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
 
       return (
         <group>
-          <mesh material={material} castShadow receiveShadow>
-            <boxGeometry args={[0.125, 1, 0.125]} />
-          </mesh>
+          <mesh
+            geometry={getVoxelBoxGeometry(0.125, 1, 0.125)}
+            material={material}
+            castShadow
+            receiveShadow
+          />
           {!hasAnyConnection ? (
-            // Isolated post cross
+            // Isolierter Einzel-Pfosten
             <group>
-              <mesh material={material} castShadow>
-                <boxGeometry args={[0.125, 1, 0.875]} />
-              </mesh>
-              <mesh material={material} castShadow>
-                <boxGeometry args={[0.875, 1, 0.125]} />
-              </mesh>
+              <mesh
+                geometry={getVoxelBoxGeometry(0.125, 1, 0.875)}
+                material={material}
+                castShadow
+              />
+              <mesh
+                geometry={getVoxelBoxGeometry(0.875, 1, 0.125)}
+                material={material}
+                castShadow
+              />
             </group>
           ) : (
-            // Dynamic neighbor connections
+            // Dynamische Verbindungsstege
             <group>
               {connections.north && (
-                <mesh position={[0, 0, -0.25]} material={material} castShadow>
-                  <boxGeometry args={[0.125, 1, 0.5]} />
-                </mesh>
+                <mesh
+                  position={[0, 0, -0.25]}
+                  geometry={getVoxelBoxGeometry(0.125, 1, 0.5)}
+                  material={material}
+                  castShadow
+                />
               )}
               {connections.south && (
-                <mesh position={[0, 0, 0.25]} material={material} castShadow>
-                  <boxGeometry args={[0.125, 1, 0.5]} />
-                </mesh>
+                <mesh
+                  position={[0, 0, 0.25]}
+                  geometry={getVoxelBoxGeometry(0.125, 1, 0.5)}
+                  material={material}
+                  castShadow
+                />
               )}
               {connections.east && (
-                <mesh position={[0.25, 0, 0]} material={material} castShadow>
-                  <boxGeometry args={[0.5, 1, 0.125]} />
-                </mesh>
+                <mesh
+                  position={[0.25, 0, 0]}
+                  geometry={getVoxelBoxGeometry(0.5, 1, 0.125)}
+                  material={material}
+                  castShadow
+                />
               )}
               {connections.west && (
-                <mesh position={[-0.25, 0, 0]} material={material} castShadow>
-                  <boxGeometry args={[0.5, 1, 0.125]} />
-                </mesh>
+                <mesh
+                  position={[-0.25, 0, 0]}
+                  geometry={getVoxelBoxGeometry(0.5, 1, 0.125)}
+                  material={material}
+                  castShadow
+                />
               )}
             </group>
           )}
@@ -438,21 +613,20 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
     // 7. Trapdoors (_trapdoor): 1 x 0.1875 x 1 (closed) bzw. hochgeklappt 1 x 1 x 0.1875 (open)
     if (blockTypeUpper.endsWith('_TRAPDOOR') || blockTypeUpper === 'TRAPDOOR') {
       if (!blockState.isOpen) {
-        // Closed horizontal trapdoor
+        // Horizontale geschlossene Falltür
         const trapdoorY = blockState.half === 'top' ? 0.40625 : -0.40625;
         return (
           <mesh
             position={[0, trapdoorY, 0]}
+            geometry={getVoxelBoxGeometry(1, 0.1875, 1)}
             material={material}
             castShadow
             receiveShadow
-          >
-            <boxGeometry args={[1, 0.1875, 1]} />
-          </mesh>
+          />
         );
       }
 
-      // Open vertical trapdoor resting against edge
+      // Vertikal aufgeklappte Falltür
       let openPos: [number, number, number] = [0, 0, 0.40625];
       let openSize: [number, number, number] = [1, 1, 0.1875];
 
@@ -471,9 +645,13 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       }
 
       return (
-        <mesh position={openPos} material={material} castShadow receiveShadow>
-          <boxGeometry args={openSize} />
-        </mesh>
+        <mesh
+          position={openPos}
+          geometry={getVoxelBoxGeometry(openSize[0], openSize[1], openSize[2])}
+          material={material}
+          castShadow
+          receiveShadow
+        />
       );
     }
 
@@ -491,12 +669,11 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       return (
         <mesh
           position={[0, -0.46875, 0]}
+          geometry={getVoxelBoxGeometry(boxWidth, 0.0625, boxDepth)}
           material={material}
           castShadow
           receiveShadow
-        >
-          <boxGeometry args={[boxWidth, 0.0625, boxDepth]} />
-        </mesh>
+        />
       );
     }
 
