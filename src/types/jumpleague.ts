@@ -46,9 +46,27 @@ export interface JLModule {
   blocks: VoxelBlock[];          // Für das Test-Modul & geparste Schematics
 }
 
+export type VoxelBlockType =
+  | 'STONE_BRICKS'
+  | 'OAK_PLANKS'
+  | 'OAK_SLAB'
+  | 'OAK_FENCE'
+  | 'IRON_BARS'
+  | 'LADDER'
+  | 'GOLD_BLOCK'
+  | 'EMERALD_BLOCK'
+  | 'GRASS_BLOCK'
+  | 'OAK_LOG'
+  | 'OAK_LEAVES'
+  | 'GLASS'
+  | 'COBWEB'
+  | 'VINE'
+  | 'LILY_PAD'
+  | (string & {});
+
 export interface VoxelBlock {
   position: Vector3D;
-  type: 'STONE_BRICKS' | 'OAK_PLANKS' | 'OAK_SLAB' | 'OAK_FENCE' | 'IRON_BARS' | 'LADDER' | 'GOLD_BLOCK' | 'EMERALD_BLOCK';
+  type: VoxelBlockType;
 }
 
 export interface FilterState {

@@ -139,7 +139,7 @@ export const ALL_MOVEMENT_TECHS: MovementTech[] = [
   'TIMING',
 ];
 
-export const VOXEL_BLOCK_LABELS: Record<VoxelBlock['type'], string> = {
+export const VOXEL_BLOCK_LABELS: Record<string, string> = {
   STONE_BRICKS: 'Steinziegel',
   OAK_PLANKS: 'Eichenholzbretter',
   OAK_SLAB: 'Eichenholzstufe',
@@ -148,4 +148,11 @@ export const VOXEL_BLOCK_LABELS: Record<VoxelBlock['type'], string> = {
   LADDER: 'Leiter',
   GOLD_BLOCK: 'Goldblock (Start/CP)',
   EMERALD_BLOCK: 'Smaragdblock (Ziel)',
+  GRASS_BLOCK: 'Grasblock',
+  OAK_LOG: 'Eichenstamm',
+  OAK_LEAVES: 'Eichenlaub',
+  GLASS: 'Glas',
+  COBWEB: 'Spinnennetz',
+  VINE: 'Ranken',
+  LILY_PAD: 'Seerosenblatt',
 };
