@@ -12,9 +12,44 @@ export interface NeighborSolidMap {
   up: boolean;
 }
 
+export interface RawMcmetaElement {
+  from: [number, number, number];
+  to: [number, number, number];
+  rotation?: {
+    origin: [number, number, number];
+    axis: 'x' | 'y' | 'z';
+    angle: number;
+    rescale?: boolean;
+  };
+  faces: Record<
+    string,
+    {
+      uv?: [number, number, number, number];
+      texture: string;
+      cullface?: string;
+      rotation?: number;
+      tintindex?: number;
+    }
+  >;
+}
+
+export interface RawMcmetaModel {
+  parent?: string;
+  textures?: Record<string, string>;
+  elements?: RawMcmetaElement[];
+  [key: string]: unknown;
+}
+
+export interface AppliedModel {
+  model: string;
+  x?: number;
+  y?: number;
+  uvlock?: boolean;
+}
+
 export interface McmetaData {
-  blockDefinitions: Record<string, any>;
-  models: Record<string, any>;
+  blockDefinitions: Record<string, unknown>;
+  models: Record<string, RawMcmetaModel>;
   atlasData: Record<string, [number, number, number, number]>;
   atlasTexture: THREE.Texture;
   atlasWidth: number;
@@ -49,7 +84,7 @@ let cachedAtlasMaterial: THREE.MeshLambertMaterial | null = null;
 const geometryCache = new Map<string, THREE.BufferGeometry>();
 
 async function fetchWithFallbacks<T>(urls: string[]): Promise<T> {
-  let lastErr: any = null;
+  let lastErr: unknown = null;
   for (const url of urls) {
     try {
       const res = await fetch(url);
@@ -60,7 +95,8 @@ async function fetchWithFallbacks<T>(urls: string[]): Promise<T> {
       lastErr = err;
     }
   }
-  throw new Error(`Konnte keine der URLs laden: ${urls.join(', ')}. Fehler: ${lastErr}`);
+  const errDetail = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  throw new Error(`Konnte keine der URLs laden: ${urls.join(', ')}. Fehler: ${errDetail}`);
 }
 
 function loadAtlasTexture(urls: string[]): Promise<{ texture: THREE.Texture; width: number; height: number }> {
@@ -179,17 +215,19 @@ export function parseBlockIdentifier(blockTypeString: string): {
 /**
  * Evaluates a multipart 'when' condition against the current block properties
  */
-function matchWhenCondition(when: any, props: Record<string, string>): boolean {
+function matchWhenCondition(when: unknown, props: Record<string, string>): boolean {
   if (!when || typeof when !== 'object') return true;
 
-  if (Array.isArray(when.OR)) {
-    return when.OR.some((sub: any) => matchWhenCondition(sub, props));
+  const whenObj = when as Record<string, unknown>;
+
+  if (Array.isArray(whenObj.OR)) {
+    return (whenObj.OR as unknown[]).some((sub) => matchWhenCondition(sub, props));
   }
-  if (Array.isArray(when.AND)) {
-    return when.AND.every((sub: any) => matchWhenCondition(sub, props));
+  if (Array.isArray(whenObj.AND)) {
+    return (whenObj.AND as unknown[]).every((sub) => matchWhenCondition(sub, props));
   }
 
-  for (const [k, v] of Object.entries(when)) {
+  for (const [k, v] of Object.entries(whenObj)) {
     if (k === 'OR' || k === 'AND') continue;
     const currentVal = props[k.toLowerCase()] ?? '';
     const targetVal = String(v).toLowerCase();
@@ -202,34 +240,27 @@ function matchWhenCondition(when: any, props: Record<string, string>): boolean {
   return true;
 }
 
-interface AppliedModel {
-  model: string;
-  x?: number;
-  y?: number;
-  uvlock?: boolean;
-}
-
 /**
  * Resolves the parent chain and collects textures and elements
  */
 function resolveModelDefinition(
   modelId: string,
-  models: Record<string, any>
+  models: Record<string, RawMcmetaModel>
 ): {
   textures: Record<string, string>;
-  elements: any[] | null;
+  elements: RawMcmetaElement[] | null;
 } {
   const cleanId = modelId.replace(/^minecraft:/, '');
   let currId: string | null = cleanId;
-  const chain: any[] = [];
+  const chain: RawMcmetaModel[] = [];
   const visited = new Set<string>();
 
   while (currId && !visited.has(currId)) {
     visited.add(currId);
-    const m: any = models[currId];
-    if (!m) break;
-    chain.unshift(m); // parents first
-    currId = m.parent ? String(m.parent).replace(/^minecraft:/, '') : null;
+    const modelObj: RawMcmetaModel | undefined = models[currId];
+    if (!modelObj) break;
+    chain.unshift(modelObj); // parents first
+    currId = modelObj.parent ? String(modelObj.parent).replace(/^minecraft:/, '') : null;
   }
 
   const textures: Record<string, string> = {};
@@ -250,10 +281,10 @@ function resolveModelDefinition(
     textures[k] = typeof val === 'string' ? val.replace(/^minecraft:/, '') : String(val || '');
   }
 
-  let elements: any[] | null = null;
+  let elements: RawMcmetaElement[] | null = null;
   for (let i = chain.length - 1; i >= 0; i--) {
     if (chain[i].elements && Array.isArray(chain[i].elements)) {
-      elements = chain[i].elements;
+      elements = chain[i].elements ?? null;
       break;
     }
   }
@@ -388,17 +419,25 @@ export function buildBlockGeometry(
     }
   }
 
-  // 3. Modell-Auflösung via block_definition
-  const def = mcmeta.blockDefinitions[name] || mcmeta.blockDefinitions[`${name}_block`];
+  const def = (mcmeta.blockDefinitions[name] ||
+    mcmeta.blockDefinitions[`${name}_block`]) as
+    | {
+        variants?: Record<string, AppliedModel | AppliedModel[]>;
+        multipart?: Array<{
+          when?: unknown;
+          apply: AppliedModel | AppliedModel[];
+        }>;
+      }
+    | undefined;
   const appliedModels: AppliedModel[] = [];
 
   if (def) {
     if (def.variants) {
       // Find matching variant
-      let bestMatch: any = null;
+      let bestMatch: AppliedModel | AppliedModel[] | null = null;
       let maxScore = -1;
 
-      for (const [varKey, varVal] of Object.entries<any>(def.variants)) {
+      for (const [varKey, varVal] of Object.entries(def.variants)) {
         if (varKey === '') {
           if (maxScore < 0) {
             bestMatch = varVal;
@@ -710,7 +749,14 @@ export function buildBlockGeometry(
 
           // 1. Element rotation
           if (el.rotation && typeof el.rotation === 'object') {
-            const elOrigin = Array.isArray(el.rotation.origin) && el.rotation.origin.length >= 3 ? el.rotation.origin : [8, 8, 8];
+            const elOrigin: [number, number, number] =
+              Array.isArray(el.rotation.origin) && el.rotation.origin.length >= 3
+                ? [
+                    Number(el.rotation.origin[0]),
+                    Number(el.rotation.origin[1]),
+                    Number(el.rotation.origin[2]),
+                  ]
+                : [8, 8, 8];
             const elAxis = el.rotation.axis || 'y';
             const elAngle = Number(el.rotation.angle) || 0;
             const elRescale = Boolean(el.rotation.rescale);

@@ -151,9 +151,10 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
         const prefix = difficulty.charAt(0).toUpperCase();
         setShortCode(`${prefix}-NEW`);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to parse schematic:', err);
-      setError(err.message || 'Fehler beim Lesen der Schematic-Datei.');
+      const msg = err instanceof Error ? err.message : 'Fehler beim Lesen der Schematic-Datei.';
+      setError(msg);
       setParsedSchem(null);
     } finally {
       setIsParsing(false);
@@ -213,8 +214,9 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
 
       await onSave(newModule);
       onClose();
-    } catch (err: any) {
-      setError(err.message || 'Fehler beim Speichern des Moduls.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Fehler beim Speichern des Moduls.';
+      setError(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -303,10 +305,11 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
         newLogs.push(
           `✓ Modul #${cleanId}: ${parsed.blockCount} Blöcke erfolgreich gespeichert`
         );
-      } catch (err: any) {
+      } catch (err: unknown) {
         errors++;
+        const msg = err instanceof Error ? err.message : 'Fehler beim Importieren';
         newLogs.push(
-          `✗ Modul #${targetId}: ${err.message || 'Fehler beim Importieren'}`
+          `✗ Modul #${targetId}: ${msg}`
         );
       }
 
@@ -462,10 +465,11 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
           logs.unshift(
             `✓ [${i + 1}/${total}] Modul #${cleanId} (${modInfo.difficulty}): ${parsed.blockCount} Blöcke gespeichert`
           );
-        } catch (err: any) {
+        } catch (err: unknown) {
           errors++;
+          const msg = err instanceof Error ? err.message : 'Fehlgeschlagen';
           logs.unshift(
-            `✗ [${i + 1}/${total}] Modul #${cleanId}: ${err.message || 'Fehlgeschlagen'}`
+            `✗ [${i + 1}/${total}] Modul #${cleanId}: ${msg}`
           );
         }
 
@@ -484,9 +488,10 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
       setBulkProgress((prev) =>
         prev ? { ...prev, status: 'DONE' } : null
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Bulk auto-import error:', err);
-      setError(err.message || 'Fehler beim automatischen Massen-Import.');
+      const msg = err instanceof Error ? err.message : 'Fehler beim automatischen Massen-Import.';
+      setError(msg);
     } finally {
       setIsBulkImporting(false);
     }

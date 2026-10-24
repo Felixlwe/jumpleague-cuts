@@ -29,8 +29,10 @@ import {
 } from '@/constants/jumpleagueConfig';
 import {
   INITIAL_MODULES,
+} from '@/data/mockModules';
+import {
   sortModulesNumerically,
-} from '@/lib/mockModuleGenerator';
+} from '@/lib/moduleUtils';
 import { JLModule, ModuleDifficulty } from '@/types/jumpleague';
 import { parseSchematicFile } from '@/lib/schematicParser';
 import { AdminAuthModal } from '@/components/hud/AdminAuthModal';
@@ -168,11 +170,12 @@ export default function ModuleHubPage() {
         message: `Modul "${moduleToReplace}" erfolgreich aktualisiert (${parsed.blockCount} Blöcke)!`,
       });
       setTimeout(() => setToast(null), 5000);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Ungültige Schematic-Datei';
       console.error('Failed to replace schematic:', err);
       setToast({
         type: 'error',
-        message: `Fehler beim Ersetzen: ${err.message || 'Ungültige Schematic-Datei'}`,
+        message: `Fehler beim Ersetzen: ${msg}`,
       });
       setTimeout(() => setToast(null), 6000);
     } finally {
@@ -192,11 +195,12 @@ export default function ModuleHubPage() {
         message: `Modul "${modId}" wurde gelöscht.`,
       });
       setTimeout(() => setToast(null), 4000);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Konnte Modul nicht entfernen';
       console.error('Failed to delete module:', err);
       setToast({
         type: 'error',
-        message: `Fehler beim Löschen: ${err.message || 'Konnte Modul nicht entfernen'}`,
+        message: `Fehler beim Löschen: ${msg}`,
       });
       setTimeout(() => setToast(null), 6000);
     } finally {
@@ -225,11 +229,12 @@ export default function ModuleHubPage() {
           'Alle vorinstallierten Standard-Module wurden dauerhaft ausgeblendet.',
       });
       setTimeout(() => setToast(null), 5000);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Konnte Standard-Module nicht entfernen';
       console.error('Failed to hide default modules:', err);
       setToast({
         type: 'error',
-        message: `Fehler beim Ausblenden: ${err.message || 'Konnte Standard-Module nicht entfernen'}`,
+        message: `Fehler beim Ausblenden: ${msg}`,
       });
       setTimeout(() => setToast(null), 5000);
     } finally {
@@ -246,28 +251,18 @@ export default function ModuleHubPage() {
         message: 'Standard-Module wurden wiederhergestellt.',
       });
       setTimeout(() => setToast(null), 5000);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Konnte Standard-Module nicht laden';
       console.error('Failed to restore default modules:', err);
       setToast({
         type: 'error',
-        message: `Fehler beim Wiederherstellen: ${err.message || 'Konnte Standard-Module nicht laden'}`,
+        message: `Fehler beim Wiederherstellen: ${msg}`,
       });
       setTimeout(() => setToast(null), 5000);
     } finally {
       setIsHidingDefaults(false);
     }
   };
-
-  if (!isMounted) {
-    return (
-      <main className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-[#11141e] font-mono text-xs text-zinc-400">
-        <div className="flex flex-col items-center gap-2.5">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent" />
-          <span>INITIALIZING JUMPLEAGUE SHORTCUTS HUB...</span>
-        </div>
-      </main>
-    );
-  }
 
   return (
     <main className="relative min-h-screen w-full bg-[#11141e] text-zinc-100">
@@ -286,10 +281,10 @@ export default function ModuleHubPage() {
       />
 
       {/* Floating Admin Controls in the top-right corner on the checkered background */}
-      <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
-        {isAdminAuthenticated ? (
+      <div className="absolute top-4 right-4 z-50 flex flex-col items-end gap-2">
+        {isMounted && (isAdminAuthenticated ? (
           <>
-            {/* 1. 'Admin-Modus an' / 'ADMIN-MODUS AKTIV' Button (links neben dem Ausloggen-Button) */}
+            {/* 1. 'Admin-Modus an' / 'ADMIN-MODUS AKTIV' Button */}
             <button
               type="button"
               onClick={toggleAdminMode}
@@ -321,7 +316,7 @@ export default function ModuleHubPage() {
               )}
             </button>
 
-            {/* 2. Ausloggen-Button (rechts daneben) */}
+            {/* 2. Ausloggen-Button (untereinander) */}
             <button
               type="button"
               onClick={() => setAdminAuthenticated(false)}
@@ -341,7 +336,7 @@ export default function ModuleHubPage() {
             <Lock className="h-3.5 w-3.5 text-zinc-500" />
             <span>Admin Login</span>
           </button>
-        )}
+        ))}
       </div>
 
       {/* Hidden File Input for .schem / .litematic replacement */}

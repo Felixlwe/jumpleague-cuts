@@ -90,14 +90,12 @@ export async function POST(req: NextRequest) {
       source,
       base64: base64String,
     });
-  } catch (err: any) {
-    console.error('[API /api/import-module] Fehler:', err);
-    return NextResponse.json(
-      {
-        error:
-          err.message || 'Interner Serverfehler beim Abrufen des Moduls von modules.top.',
-      },
-      { status: 500 }
-    );
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : 'Interner Serverfehler beim Abrufen des Moduls von modules.top.';
+    console.error('[API /api/import-module] Fehler:', message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

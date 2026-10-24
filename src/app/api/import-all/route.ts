@@ -151,14 +151,12 @@ export async function POST(req: NextRequest) {
       counts,
       modules,
     });
-  } catch (err: any) {
-    console.error('[API import-all] Fehler:', err);
-    return NextResponse.json(
-      {
-        error:
-          err.message || 'Interner Serverfehler beim Scrapen der Module von modules.top.',
-      },
-      { status: 500 }
-    );
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : 'Interner Serverfehler beim Scrapen der Module von modules.top.';
+    console.error('[API import-all] Fehler:', message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -9,7 +9,7 @@ import {
   Vector3D,
   VoxelBlock,
 } from '@/types/jumpleague';
-import { INITIAL_CUTS, INITIAL_MODULES } from '@/lib/mockModuleGenerator';
+import { INITIAL_CUTS, INITIAL_MODULES } from '@/data/mockModules';
 import {
   fetchCutsFromSupabase,
   insertCutIntoSupabase,

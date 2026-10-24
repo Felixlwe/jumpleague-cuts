@@ -3,16 +3,16 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { CameraControls } from '@react-three/drei';
-import { useJumpLeagueStore } from '@/store/useJumpLeagueStore';
+import { useJLStore } from '@/store/useJLStore';
 
 export const CameraRig: React.FC = () => {
   const controlsRef = useRef<CameraControls | null>(null);
 
-  const selectedCutId = useJumpLeagueStore((s) => s.selectedCutId);
-  const selectedModuleId = useJumpLeagueStore((s) => s.selectedModuleId);
-  const cameraResetCounter = useJumpLeagueStore((s) => s.cameraResetCounter);
-  const cuts = useJumpLeagueStore((s) => s.cuts);
-  const setLiveCameraState = useJumpLeagueStore((s) => s.setLiveCameraState);
+  const selectedCutId = useJLStore((s) => s.selectedCutId);
+  const selectedModuleId = useJLStore((s) => s.selectedModuleId);
+  const cameraResetCounter = useJLStore((s) => s.cameraResetCounter);
+  const cuts = useJLStore((s) => s.cuts);
+  const setLiveCameraState = useJLStore((s) => s.setLiveCameraState);
 
   // Smoothly glide to selected Cut perspective
   useEffect(() => {
@@ -47,7 +47,7 @@ export const CameraRig: React.FC = () => {
     controls.smoothTime = 0.35;
 
     // If a cut is actively selected right on module load, let the cut effect handle it
-    const state = useJumpLeagueStore.getState();
+    const state = useJLStore.getState();
     if (state.selectedCutId) {
       const activeCut = state.cuts.find((c) => c.id === state.selectedCutId);
       if (activeCut && activeCut.moduleId === selectedModuleId) {

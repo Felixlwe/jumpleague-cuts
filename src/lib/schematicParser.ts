@@ -27,9 +27,130 @@ export interface ParsedSchematic {
 }
 
 /**
- * Parses block state strings formatted like:
- * "minecraft:oak_stairs[facing=east,half=bottom,waterlogged=false]"
+ * Normalizes and centers voxel coordinates into JumpLeague 3D world space
  */
+export function centerCoordinate(
+  x: number,
+  y: number,
+  z: number,
+  halfWidth: number
+): Vector3D {
+  return {
+    x: x - halfWidth,
+    y: y + 1,
+    z,
+  };
+}
+
+/**
+ * Detects spawn and finish points from metadata (BukkitValues) or pressure plates / tactical blocks
+ */
+export function detectSpawnAndFinish(
+  blocks: VoxelBlock[],
+  bukkit?: Record<string, unknown>,
+  halfWidth: number = 0
+): { spawnPoint?: Vector3D; finishPoint?: Vector3D } {
+  let spawnPoint: Vector3D | undefined = undefined;
+  let finishPoint: Vector3D | undefined = undefined;
+
+  // 1. Check BukkitValues (modules.top format)
+  if (bukkit && typeof bukkit === 'object') {
+    const rawStart = bukkit.start || bukkit.Start;
+    const rawFinish = bukkit.finish || bukkit.Finish;
+
+    if (Array.isArray(rawStart) && rawStart.length >= 3) {
+      spawnPoint = centerCoordinate(
+        Number(rawStart[0]),
+        Number(rawStart[1]),
+        Number(rawStart[2]),
+        halfWidth
+      );
+    }
+    if (Array.isArray(rawFinish) && rawFinish.length >= 3) {
+      finishPoint = centerCoordinate(
+        Number(rawFinish[0]),
+        Number(rawFinish[1]),
+        Number(rawFinish[2]),
+        halfWidth
+      );
+    }
+  }
+
+  // 2. Fallback: Search for pressure plates in blocks
+  if (!spawnPoint || !finishPoint) {
+    const plates = blocks.filter((b) =>
+      b.type.toLowerCase().includes('pressure_plate')
+    );
+
+    if (plates.length >= 2) {
+      plates.sort((a, b) => a.position.z - b.position.z);
+      if (!spawnPoint) spawnPoint = { ...plates[0].position };
+      if (!finishPoint) finishPoint = { ...plates[plates.length - 1].position };
+    } else if (plates.length === 1 && !spawnPoint) {
+      spawnPoint = { ...plates[0].position };
+    }
+  }
+
+  // 3. Fallback: Search for gold_block (often start) and emerald_block (often finish)
+  if (!spawnPoint) {
+    const gold = blocks.find((b) => b.type.toLowerCase().includes('gold_block'));
+    if (gold) {
+      spawnPoint = {
+        x: gold.position.x,
+        y: gold.position.y + 1,
+        z: gold.position.z,
+      };
+    }
+  }
+
+  if (!finishPoint) {
+    const emerald = blocks.find((b) =>
+      b.type.toLowerCase().includes('emerald_block')
+    );
+    if (emerald) {
+      finishPoint = {
+        x: emerald.position.x,
+        y: emerald.position.y + 1,
+        z: emerald.position.z,
+      };
+    }
+  }
+
+  return { spawnPoint, finishPoint };
+}
+
+/**
+ * Standard JLModule factory helper with normalized IDs and defaults
+ */
+export function createJLModule(options: {
+  id?: string;
+  shortCode?: string;
+  name: string;
+  difficulty?: ModuleDifficulty;
+  dimensions: Vector3D;
+  blocks: VoxelBlock[];
+  spawnPoint?: Vector3D;
+  finishPoint?: Vector3D;
+}): JLModule {
+  const shortCode =
+    options.shortCode ||
+    options.id ||
+    `U-${options.name.substring(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') || 'MOD'}-${Date.now().toString().slice(-4)}`;
+  const id = options.id || shortCode;
+
+  return {
+    id,
+    shortCode,
+    name: options.name,
+    difficulty: options.difficulty || 'MEDIUM',
+    dimensions: options.dimensions,
+    blockCount: options.blocks.length,
+    blocks: options.blocks,
+    spawnPoint: options.spawnPoint,
+    finishPoint: options.finishPoint,
+  };
+}
+
 /**
  * Parses block state strings formatted like:
  * "minecraft:oak_stairs[facing=east,half=bottom,waterlogged=false]"
@@ -39,7 +160,7 @@ export interface ParsedSchematic {
  */
 export function parseBlockStateString(
   raw: string,
-  additionalProps?: Record<string, any>
+  additionalProps?: Record<string, unknown>
 ): {
   type: string;
   cleanName: string;
@@ -151,6 +272,18 @@ export function parseBlockStateString(
   };
 }
 
+export type NBTTagPayload =
+  | number
+  | bigint
+  | string
+  | Uint8Array
+  | number[]
+  | bigint[]
+  | NBTTagPayload[]
+  | NBTCompound;
+
+export type NBTCompound = { [key: string]: NBTTagPayload };
+
 /**
  * Complete Browser-Compatible Big-Endian NBT Reader
  */
@@ -240,7 +373,7 @@ export class NBTReader {
     return result;
   }
 
-  readTagPayload(tagType: number): any {
+  readTagPayload(tagType: number): NBTTagPayload | null {
     switch (tagType) {
       case 0: // TAG_End
         return null;
@@ -264,20 +397,22 @@ export class NBTReader {
         // TAG_List
         const elemType = this.readByte();
         const length = this.readInt();
-        const list: any[] = [];
+        const list: NBTTagPayload[] = [];
         for (let i = 0; i < length; i++) {
-          list.push(this.readTagPayload(elemType));
+          const payload = this.readTagPayload(elemType);
+          if (payload !== null) list.push(payload);
         }
         return list;
       }
       case 10: {
         // TAG_Compound
-        const compound: Record<string, any> = {};
+        const compound: NBTCompound = {};
         while (true) {
           const type = this.readByte();
           if (type === 0) break; // TAG_End
           const name = this.readString();
-          compound[name] = this.readTagPayload(type);
+          const payload = this.readTagPayload(type);
+          if (payload !== null) compound[name] = payload;
         }
         return compound;
       }
@@ -292,14 +427,13 @@ export class NBTReader {
     }
   }
 
-  readRoot(): Record<string, any> {
+  readRoot(): NBTCompound {
     const rootType = this.readByte();
     if (rootType !== 10) {
       throw new Error(`Expected root TAG_Compound (10), got ${rootType}`);
     }
-    // Read root compound name (usually "" or "Schematic")
     this.readString();
-    return this.readTagPayload(10);
+    return (this.readTagPayload(10) as NBTCompound) || {};
   }
 }
 
@@ -327,9 +461,9 @@ export function decodeVarInt(
 /**
  * Locates the schematic root compound within possible envelopes
  */
-function findSchematicCompound(root: Record<string, any>): Record<string, any> {
-  if (root.Schematic && typeof root.Schematic === 'object') {
-    return root.Schematic;
+function findSchematicCompound(root: NBTCompound): NBTCompound {
+  if (root.Schematic && typeof root.Schematic === 'object' && !Array.isArray(root.Schematic)) {
+    return root.Schematic as NBTCompound;
   }
   if (
     root.Width !== undefined &&
@@ -341,8 +475,8 @@ function findSchematicCompound(root: Record<string, any>): Record<string, any> {
   }
   for (const key of Object.keys(root)) {
     const val = root[key];
-    if (val && typeof val === 'object' && val.Width !== undefined) {
-      return val;
+    if (val && typeof val === 'object' && !Array.isArray(val) && (val as NBTCompound).Width !== undefined) {
+      return val as NBTCompound;
     }
   }
   return root;
@@ -419,7 +553,6 @@ export function getLitematicaBlockIndex(
   let value = currentLong >> BigInt(startBitOffset);
   const bitsAvailable = 64 - startBitOffset;
 
-  // If the entry crosses the 64-bit boundary into the next long
   if (bitsAvailable < bitsPerEntry && startLongIndex + 1 < blockStates.length) {
     const nextLong = BigInt.asUintN(64, blockStates[startLongIndex + 1]);
     value |= nextLong << BigInt(bitsAvailable);
@@ -432,30 +565,29 @@ export function getLitematicaBlockIndex(
  * Parses a native Litematica (.litematic) NBT root compound
  */
 export function parseLitematicaCompound(
-  rootCompound: Record<string, any>,
-  fallbackName: string
+  rootCompound: NBTCompound,
+  fallbackName: string = 'Litematica Modul',
+  options?: SchematicParseOptions
 ): ParsedSchematic {
-  const regions = rootCompound.Regions as Record<string, any>;
+  const regions = rootCompound.Regions as NBTCompound | undefined;
+  if (!regions || typeof regions !== 'object' || Array.isArray(regions)) {
+    throw new Error('Litematica-Datei enthält keine Regionen unter "Regions".');
+  }
+
   const regionNames = Object.keys(regions);
   if (regionNames.length === 0) {
     throw new Error('Litematica-Datei enthält keine Regionen unter "Regions".');
   }
 
-  // 1. Gehe in den ersten Schlüssel unter Regions (meist 'Unnamed' oder benutzerdefinierter Name)
   const primaryRegionName = regionNames[0];
-  const region = regions[primaryRegionName];
-  if (!region || typeof region !== 'object') {
-    throw new Error(
-      `Ungültige Litematica-Region "${primaryRegionName}" gefunden.`
-    );
+  const region = regions[primaryRegionName] as NBTCompound | undefined;
+  if (!region || typeof region !== 'object' || Array.isArray(region)) {
+    throw new Error(`Ungültige Litematica-Region "${primaryRegionName}" gefunden.`);
   }
 
-  // 2. Lese dort die Dimensionen aus dem Size-Tag (x, y, z)
-  const sizeTag = region.Size || region.size;
+  const sizeTag = (region.Size || region.size) as NBTCompound | undefined;
   if (!sizeTag || typeof sizeTag !== 'object') {
-    throw new Error(
-      `Region "${primaryRegionName}" besitzt keinen gültigen Size-Tag.`
-    );
+    throw new Error(`Region "${primaryRegionName}" besitzt keinen gültigen Size-Tag.`);
   }
 
   const rawX = Number(sizeTag.x ?? sizeTag.X ?? 0);
@@ -472,32 +604,29 @@ export function parseLitematicaCompound(
     );
   }
 
-  // 3. Lese die BlockStatePalette (Array aus Objekten mit Name und optionalen Properties)
-  const rawPalette: any[] = Array.isArray(region.BlockStatePalette)
-    ? region.BlockStatePalette
+  const rawPalette: unknown[] = Array.isArray(region.BlockStatePalette)
+    ? (region.BlockStatePalette as unknown[])
     : [];
 
   const paletteMap = rawPalette.map((item) => {
     if (!item || typeof item !== 'object') {
       return parseBlockStateString('minecraft:air');
     }
-    const blockName = String(item.Name || item.name || 'minecraft:air');
-    const props = item.Properties || item.properties || {};
+    const itemObj = item as Record<string, unknown>;
+    const blockName = String(itemObj.Name || itemObj.name || 'minecraft:air');
+    const props = (itemObj.Properties || itemObj.properties || {}) as Record<string, unknown>;
     return parseBlockStateString(blockName, props);
   });
 
-  // 4. Lese das BlockStates Array (Bit-Packed Long Array)
   const blockStates: bigint[] = Array.isArray(region.BlockStates)
-    ? region.BlockStates
+    ? (region.BlockStates as bigint[])
     : [];
 
   const totalBlocks = width * height * length;
   const paletteCount = Math.max(1, paletteMap.length);
 
-  // Bit-Größe pro Block flexibel (basierend auf Math.max(4, Math.ceil(Math.log2(palette.length))))
   let bitsPerBlock = Math.max(4, Math.ceil(Math.log2(paletteCount)));
 
-  // Adaptive Prüfung falls Litematica mit kleinerer Bitbreite (z. B. 2 oder 3 Bits) gepackt wurde
   if (blockStates.length > 0 && totalBlocks > 0) {
     for (let candidate = 2; candidate <= 16; candidate++) {
       if (Math.ceil((totalBlocks * candidate) / 64) === blockStates.length) {
@@ -520,21 +649,15 @@ export function parseLitematicaCompound(
             ? getLitematicaBlockIndex(blockStates, flatIndex, bitsPerBlock)
             : 0;
 
-        const parsed =
-          paletteMap[palId] || parseBlockStateString('minecraft:air');
+        const parsed = paletteMap[palId] || parseBlockStateString('minecraft:air');
         if (parsed.isAir) continue;
 
-        // Vorzeichen-orientierte Achsenkorrektur bei negativen Size-Werten
         const finalX = rawX < 0 ? width - 1 - x : x;
         const finalY = rawY < 0 ? height - 1 - y : y;
         const finalZ = rawZ < 0 ? length - 1 - z : z;
 
         blocks.push({
-          position: {
-            x: finalX - halfWidth,
-            y: finalY + 1,
-            z: finalZ,
-          },
+          position: centerCoordinate(finalX, finalY, finalZ, halfWidth),
           type: parsed.type,
           facing: parsed.facing,
           half: parsed.half,
@@ -547,14 +670,16 @@ export function parseLitematicaCompound(
     }
   }
 
-  // Modul-Name aus Metadata, Fallback oder Regionenname ableiten
+  const { spawnPoint, finishPoint } = detectSpawnAndFinish(blocks);
+
   const metaName =
-    typeof rootCompound.Metadata?.Name === 'string' &&
-    rootCompound.Metadata.Name.trim().length > 0
-      ? rootCompound.Metadata.Name.trim()
+    typeof (rootCompound.Metadata as NBTCompound | undefined)?.Name === 'string' &&
+    ((rootCompound.Metadata as NBTCompound).Name as string).trim().length > 0
+      ? ((rootCompound.Metadata as NBTCompound).Name as string).trim()
       : undefined;
 
   const cleanModuleName = (
+    options?.name ||
     metaName ||
     fallbackName.replace(/\.(schem|schematic|litematic)$/i, '') ||
     (primaryRegionName !== 'Unnamed' ? primaryRegionName : '') ||
@@ -563,16 +688,15 @@ export function parseLitematicaCompound(
     .replace(/[_\s-]+/g, ' ')
     .trim();
 
-  const moduleShortId = `U-${cleanModuleName.substring(0, 4).toUpperCase()}-${Date.now().toString().slice(-4)}`;
-
-  const module: JLModule = {
-    id: moduleShortId,
-    name: cleanModuleName || 'Litematica Modul',
-    difficulty: 'MEDIUM',
+  const module = createJLModule({
+    id: options?.shortCode,
+    name: cleanModuleName,
+    difficulty: options?.difficulty || 'MEDIUM',
     dimensions: { x: width, y: height, z: length },
-    blockCount: blocks.length,
     blocks,
-  };
+    spawnPoint,
+    finishPoint,
+  });
 
   return {
     name: cleanModuleName,
@@ -587,11 +711,11 @@ export function parseLitematicaCompound(
  * Parses a Vanilla Minecraft Structure NBT (.nbt) compound (e.g. from structure blocks or modules.top)
  */
 export function parseVanillaStructureCompound(
-  rootCompound: Record<string, any>,
+  rootCompound: NBTCompound,
   fallbackName: string = 'Structure-Module',
   options?: SchematicParseOptions
 ): ParsedSchematic {
-  const sizeArray = rootCompound.size || rootCompound.Size;
+  const sizeArray = (rootCompound.size || rootCompound.Size) as unknown[] | undefined;
   if (!Array.isArray(sizeArray) || sizeArray.length < 3) {
     throw new Error('Vanilla Structure NBT enthält kein gültiges "size" Array.');
   }
@@ -606,25 +730,26 @@ export function parseVanillaStructureCompound(
     );
   }
 
-  const rawPalette: any[] = Array.isArray(rootCompound.palette)
-    ? rootCompound.palette
+  const rawPalette: unknown[] = Array.isArray(rootCompound.palette)
+    ? (rootCompound.palette as unknown[])
     : Array.isArray(rootCompound.Palette)
-    ? rootCompound.Palette
+    ? (rootCompound.Palette as unknown[])
     : [];
 
   const paletteMap = rawPalette.map((item) => {
     if (!item || typeof item !== 'object') {
       return parseBlockStateString('minecraft:air');
     }
-    const blockName = String(item.Name || item.name || 'minecraft:air');
-    const props = item.Properties || item.properties || {};
+    const itemObj = item as Record<string, unknown>;
+    const blockName = String(itemObj.Name || itemObj.name || 'minecraft:air');
+    const props = (itemObj.Properties || itemObj.properties || {}) as Record<string, unknown>;
     return parseBlockStateString(blockName, props);
   });
 
-  const rawBlocks: any[] = Array.isArray(rootCompound.blocks)
-    ? rootCompound.blocks
+  const rawBlocks: unknown[] = Array.isArray(rootCompound.blocks)
+    ? (rootCompound.blocks as unknown[])
     : Array.isArray(rootCompound.Blocks)
-    ? rootCompound.Blocks
+    ? (rootCompound.Blocks as unknown[])
     : [];
 
   const blocks: VoxelBlock[] = [];
@@ -632,25 +757,21 @@ export function parseVanillaStructureCompound(
 
   for (const b of rawBlocks) {
     if (!b || typeof b !== 'object') continue;
-    const pos = b.pos;
+    const bObj = b as Record<string, unknown>;
+    const pos = bObj.pos;
     if (!Array.isArray(pos) || pos.length < 3) continue;
 
     const bx = Number(pos[0]);
     const by = Number(pos[1]);
     const bz = Number(pos[2]);
 
-    const stateIdx = Number(b.state ?? 0);
-    const parsed =
-      paletteMap[stateIdx] || parseBlockStateString('minecraft:air');
+    const stateIdx = Number(bObj.state ?? 0);
+    const parsed = paletteMap[stateIdx] || parseBlockStateString('minecraft:air');
 
     if (parsed.isAir) continue;
 
     blocks.push({
-      position: {
-        x: bx - halfWidth,
-        y: by + 1,
-        z: bz,
-      },
+      position: centerCoordinate(bx, by, bz, halfWidth),
       type: parsed.type,
       facing: parsed.facing,
       half: parsed.half,
@@ -661,28 +782,13 @@ export function parseVanillaStructureCompound(
     });
   }
 
-  // Parse BukkitValues if present (e.g. modules.top provides start, finish, difficulty, name)
-  const bukkit = rootCompound.BukkitValues;
-  let spawnPoint: Vector3D | undefined = undefined;
-  let finishPoint: Vector3D | undefined = undefined;
+  const bukkit = rootCompound.BukkitValues as Record<string, unknown> | undefined;
+  const { spawnPoint, finishPoint } = detectSpawnAndFinish(blocks, bukkit, halfWidth);
+
   let detectedDifficulty: ModuleDifficulty | undefined = undefined;
   let detectedName: string | undefined = undefined;
 
   if (bukkit && typeof bukkit === 'object') {
-    if (Array.isArray(bukkit.start) && bukkit.start.length >= 3) {
-      spawnPoint = {
-        x: Number(bukkit.start[0]) - halfWidth,
-        y: Number(bukkit.start[1]) + 1,
-        z: Number(bukkit.start[2]),
-      };
-    }
-    if (Array.isArray(bukkit.finish) && bukkit.finish.length >= 3) {
-      finishPoint = {
-        x: Number(bukkit.finish[0]) - halfWidth,
-        y: Number(bukkit.finish[1]) + 1,
-        z: Number(bukkit.finish[2]),
-      };
-    }
     if (typeof bukkit.difficulty === 'string') {
       const d = bukkit.difficulty.toUpperCase();
       if (d === 'EASY' || d === 'MEDIUM' || d === 'HARD' || d === 'ULTRA') {
@@ -714,17 +820,16 @@ export function parseVanillaStructureCompound(
   const resolvedDifficulty =
     options?.difficulty || detectedDifficulty || 'EASY';
 
-  const module: JLModule = {
+  const module = createJLModule({
     id: resolvedId,
     shortCode: resolvedId,
     name: resolvedName,
     difficulty: resolvedDifficulty,
     dimensions: { x: width, y: height, z: length },
-    blockCount: blocks.length,
     blocks,
     spawnPoint,
     finishPoint,
-  };
+  });
 
   return {
     name: resolvedName,
@@ -752,7 +857,6 @@ export async function parseSchematicData(
       try {
         decompressed = inflate(rawData);
       } catch {
-        // Fallback: uncompressed raw NBT
         decompressed = rawData;
       }
     }
@@ -770,7 +874,7 @@ export async function parseSchematicData(
     typeof rootCompound.Regions === 'object' &&
     !Array.isArray(rootCompound.Regions)
   ) {
-    return parseLitematicaCompound(rootCompound, fallbackName);
+    return parseLitematicaCompound(rootCompound, fallbackName, options);
   }
 
   // Check if Vanilla Structure NBT (.nbt / modules.top)
@@ -800,19 +904,22 @@ export async function parseSchematicData(
   const isSponge =
     schem.Palette !== undefined ||
     schem.BlockData !== undefined ||
-    (schem.Blocks && schem.Blocks.Palette);
+    (schem.Blocks && (schem.Blocks as NBTCompound).Palette !== undefined);
 
   if (isSponge) {
     const paletteTag =
-      schem.Palette || (schem.Blocks && schem.Blocks.Palette);
-    const blockDataTag: Uint8Array | undefined =
-      schem.BlockData || (schem.Blocks && schem.Blocks.Data);
+      schem.Palette || (schem.Blocks && (schem.Blocks as NBTCompound).Palette);
+    const rawBlockData =
+      schem.BlockData ??
+      (schem.Blocks && typeof schem.Blocks === 'object'
+        ? (schem.Blocks as NBTCompound).Data
+        : undefined);
+    const blockDataTag = rawBlockData instanceof Uint8Array ? rawBlockData : undefined;
 
     if (!blockDataTag) {
       throw new Error('Schematic enthält kein BlockData-Array.');
     }
 
-    // Invert Palette: index -> blockStateString
     const paletteMap: string[] = [];
     if (paletteTag && typeof paletteTag === 'object') {
       if (Array.isArray(paletteTag)) {
@@ -820,7 +927,7 @@ export async function parseSchematicData(
           paletteMap[i] = String(paletteTag[i]);
         }
       } else {
-        for (const [stateStr, idVal] of Object.entries(paletteTag)) {
+        for (const [stateStr, idVal] of Object.entries(paletteTag as Record<string, unknown>)) {
           paletteMap[Number(idVal)] = stateStr;
         }
       }
@@ -834,7 +941,6 @@ export async function parseSchematicData(
       blockPaletteIds[i] = decodeVarInt(blockDataTag, offset);
     }
 
-    // Sponge Coordinate order: index = (y * length + z) * width + x
     let idx = 0;
     for (let y = 0; y < height; y++) {
       for (let z = 0; z < length; z++) {
@@ -846,11 +952,7 @@ export async function parseSchematicData(
           if (parsed.isAir) continue;
 
           blocks.push({
-            position: {
-              x: x - halfWidth,
-              y: y + 1,
-              z: z,
-            },
+            position: centerCoordinate(x, y, z, halfWidth),
             type: parsed.type,
             facing: parsed.facing,
             half: parsed.half,
@@ -864,8 +966,8 @@ export async function parseSchematicData(
     }
   } else if (schem.Blocks && schem.Data) {
     // 4. Legacy MCEdit .schematic Parsing
-    const rawBlocks: Uint8Array = schem.Blocks;
-    const rawData: Uint8Array = schem.Data;
+    const rawBlocks = schem.Blocks as Uint8Array;
+    const rawData = schem.Data as Uint8Array;
     let idx = 0;
 
     for (let y = 0; y < height; y++) {
@@ -875,14 +977,12 @@ export async function parseSchematicData(
           const meta = rawData[idx];
           idx++;
 
-          if (blockId === 0) continue; // air
+          if (blockId === 0) continue;
 
           const typeName = LEGACY_ID_MAP[blockId] || 'stone';
-          let facing: 'north' | 'south' | 'east' | 'west' | undefined =
-            undefined;
+          let facing: 'north' | 'south' | 'east' | 'west' | undefined = undefined;
           let half: 'bottom' | 'top' | undefined = undefined;
 
-          // Legacy stairs metadata
           if (typeName.endsWith('stairs')) {
             const dir = meta & 0x03;
             if (dir === 0) facing = 'east';
@@ -895,17 +995,10 @@ export async function parseSchematicData(
           const legacyProps: Record<string, string> = {};
           if (facing) legacyProps.facing = facing;
           if (half) legacyProps.half = half;
-          const parsed = parseBlockStateString(
-            `minecraft:${typeName}`,
-            legacyProps
-          );
+          const parsed = parseBlockStateString(`minecraft:${typeName}`, legacyProps);
 
           blocks.push({
-            position: {
-              x: x - halfWidth,
-              y: y + 1,
-              z: z,
-            },
+            position: centerCoordinate(x, y, z, halfWidth),
             type: parsed.type,
             facing: parsed.facing,
             half: parsed.half,
@@ -921,22 +1014,26 @@ export async function parseSchematicData(
     );
   }
 
-  const cleanModuleName = fallbackName
-    .replace(/\.(schem|schematic|litematic)$/i, '')
-    .replace(/[_\s-]+/g, ' ')
-    .trim();
+  const { spawnPoint, finishPoint } = detectSpawnAndFinish(blocks);
 
-  // Generate unique module ID based on filename or timestamp
-  const moduleShortId = `U-${cleanModuleName.substring(0, 4).toUpperCase()}-${Date.now().toString().slice(-4)}`;
+  const cleanModuleName = (
+    options?.name ||
+    fallbackName
+      .replace(/\.(schem|schematic|litematic)$/i, '')
+      .replace(/[_\s-]+/g, ' ')
+      .trim() ||
+    'Schematic Modul'
+  );
 
-  const module: JLModule = {
-    id: moduleShortId,
-    name: cleanModuleName || 'Schematic Modul',
-    difficulty: 'MEDIUM',
+  const module = createJLModule({
+    id: options?.shortCode,
+    name: cleanModuleName,
+    difficulty: options?.difficulty || 'MEDIUM',
     dimensions: { x: width, y: height, z: length },
-    blockCount: blocks.length,
     blocks,
-  };
+    spawnPoint,
+    finishPoint,
+  });
 
   return {
     name: cleanModuleName,

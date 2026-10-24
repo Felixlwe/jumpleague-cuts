@@ -10,7 +10,6 @@ import { VOXEL_BLOCK_LABELS } from '@/constants/jumpleagueConfig';
 import { WorldHtml } from '@/components/three/WorldHtml';
 import { DraggableMidPoint } from '@/components/three/DraggableMidPoint';
 import {
-  useMinecraftBlockMaterial,
   getMinecraftBlockMaterial,
 } from '@/lib/minecraftTextures';
 import {
@@ -277,7 +276,6 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
   onPick,
 }) => {
   const { x, y, z } = block.position;
-  const material = useMinecraftBlockMaterial(block.type);
 
   const parsedId = useMemo(
     () => parseBlockIdentifier(block.type),
@@ -317,6 +315,14 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
     if (!mcmeta) return null;
     return buildBlockGeometry(block.type, neighborSolidMap, mcmeta);
   }, [block.type, neighborSolidMap, mcmeta]);
+
+  const hasAtlasGeometry = Boolean(blockGeometry && atlasMaterial);
+
+  // Lazy fallback material: only resolved when mcmeta atlas geometry is not available
+  const fallbackMaterial = useMemo(() => {
+    if (hasAtlasGeometry) return null;
+    return getMinecraftBlockMaterial(block.type);
+  }, [hasAtlasGeometry, block.type]);
 
   const blockState = useMemo(
     () => parseBlockState(block, blockMap),
@@ -453,6 +459,7 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
   }, [blockTypeUpper, blockState]);
 
   const renderGeometryByType = () => {
+    const material = fallbackMaterial || getMinecraftBlockMaterial(block.type);
     // 0. Ambosse (_anvil, anvil, chipped_anvil, damaged_anvil): Detailreiches 3D-Modell mit Fuß, Hals & Kopf
     if (blockTypeUpper.includes('ANVIL')) {
       const isNorthSouth =
@@ -1514,6 +1521,7 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
           material={atlasMaterial}
           castShadow
           receiveShadow
+          dispose={null}
         />
       ) : (
         renderGeometryByType()

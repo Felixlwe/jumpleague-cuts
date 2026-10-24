@@ -83,8 +83,9 @@ export const AdminReviewPanel: React.FC = () => {
       triggerCameraReset();
       setAdminUploadMsg(`Modul "${parsed.name}" (${parsed.blockCount} Blöcke) geladen!`);
       setTimeout(() => setAdminUploadMsg(null), 4000);
-    } catch (err: any) {
-      alert(`Schematic-Upload fehlgeschlagen: ${err.message || err}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Schematic-Upload fehlgeschlagen: ${msg}`);
     } finally {
       setIsAdminUploading(false);
       e.target.value = '';
