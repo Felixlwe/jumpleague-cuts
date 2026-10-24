@@ -4,12 +4,10 @@ import React, { useRef, useState } from 'react';
 import {
   Crosshair,
   Camera,
-  Plus,
   Send,
   RotateCcw,
   Star,
   CheckCircle2,
-  Trash2,
   Upload,
   Link2,
   X,
@@ -30,8 +28,6 @@ export const SubmissionModal: React.FC = () => {
   const selectedModuleId = useJLStore((s) => s.selectedModuleId);
   const pickStage = useJLStore((s) => s.pickStage);
   const draftStartBlock = useJLStore((s) => s.draftStartBlock);
-  const draftMidPoints = useJLStore((s) => s.draftMidPoints);
-  const activeDraftMidPointIndex = useJLStore((s) => s.activeDraftMidPointIndex);
   const draftEndBlock = useJLStore((s) => s.draftEndBlock);
   const draftCameraPosition = useJLStore((s) => s.draftCameraPosition);
   const draftCameraTarget = useJLStore((s) => s.draftCameraTarget);
@@ -39,12 +35,6 @@ export const SubmissionModal: React.FC = () => {
   const liveCameraTarget = useJLStore((s) => s.liveCameraTarget);
 
   const setPickStage = useJLStore((s) => s.setPickStage);
-  const addInterpolatedMidPoint = useJLStore((s) => s.addInterpolatedMidPoint);
-  const setActiveDraftMidPointIndex = useJLStore(
-    (s) => s.setActiveDraftMidPointIndex
-  );
-  const updateDraftMidPoint = useJLStore((s) => s.updateDraftMidPoint);
-  const removeDraftMidPoint = useJLStore((s) => s.removeDraftMidPoint);
   const captureCurrentCameraForDraft = useJLStore(
     (s) => s.captureCurrentCameraForDraft
   );
@@ -85,21 +75,6 @@ export const SubmissionModal: React.FC = () => {
     setLocalVideoName(file.name);
   };
 
-  const nudgeMidPoint = (
-    idx: number,
-    dx: number,
-    dy: number,
-    dz: number
-  ) => {
-    const pt = draftMidPoints[idx];
-    if (!pt) return;
-    updateDraftMidPoint(idx, {
-      x: Number((pt.x + dx).toFixed(1)),
-      y: Number((pt.y + dy).toFixed(1)),
-      z: Number((pt.z + dz).toFixed(1)),
-    });
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -130,7 +105,7 @@ export const SubmissionModal: React.FC = () => {
       consistencyRating,
       techniques: techniques.length > 0 ? techniques : ['TIMING'],
       startBlock: draftStartBlock,
-      midPoints: draftMidPoints.length > 0 ? draftMidPoints : undefined,
+      midPoints: undefined,
       endBlock: draftEndBlock,
       cameraPosition: {
         x: Number(camPos.x.toFixed(2)),
@@ -247,12 +222,12 @@ export const SubmissionModal: React.FC = () => {
             </span>
           </div>
 
-          <div className="grid grid-cols-3 gap-1.5">
+          <div className="grid grid-cols-2 gap-2">
             {/* 1. Klick: Start-Block */}
             <button
               type="button"
               onClick={() => setPickStage('START')}
-              className={`rounded-xl border p-2 text-left transition ${
+              className={`rounded-xl border p-2.5 text-left transition ${
                 pickStage === 'START'
                   ? 'border-emerald-400 bg-emerald-500/20 text-white shadow-[0_0_12px_rgba(16,185,129,0.3)]'
                   : 'border-white/10 bg-zinc-900/70 text-zinc-400 hover:text-zinc-200'
@@ -268,38 +243,11 @@ export const SubmissionModal: React.FC = () => {
               </div>
             </button>
 
-            {/* Optional: + Zwischenpunkt */}
-            <button
-              type="button"
-              onClick={() => {
-                if (draftStartBlock && draftEndBlock && draftMidPoints.length === 0) {
-                  addInterpolatedMidPoint(1.6);
-                } else {
-                  setPickStage('MID');
-                }
-              }}
-              className={`rounded-xl border p-2 text-left transition ${
-                pickStage === 'MID'
-                  ? 'border-cyan-400 bg-cyan-500/20 text-white shadow-[0_0_12px_rgba(6,182,212,0.3)]'
-                  : 'border-white/10 bg-zinc-900/70 text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <div className="flex items-center gap-0.5 font-mono text-[10px] font-bold text-cyan-400">
-                <Plus className="h-3 w-3" />
-                <span>ZWISCHENPUNKT</span>
-              </div>
-              <div className="mt-0.5 font-mono text-[11px] text-zinc-100 truncate">
-                {draftMidPoints.length > 0
-                  ? `${draftMidPoints.length} Neo-Punkt(e)`
-                  : 'Mittelklick / +'}
-              </div>
-            </button>
-
             {/* 2. Klick: Ziel-Block */}
             <button
               type="button"
               onClick={() => setPickStage('END')}
-              className={`rounded-xl border p-2 text-left transition ${
+              className={`rounded-xl border p-2.5 text-left transition ${
                 pickStage === 'END'
                   ? 'border-purple-400 bg-purple-500/20 text-white shadow-[0_0_12px_rgba(168,85,247,0.3)]'
                   : 'border-white/10 bg-zinc-900/70 text-zinc-400 hover:text-zinc-200'
@@ -315,199 +263,6 @@ export const SubmissionModal: React.FC = () => {
               </div>
             </button>
           </div>
-
-          {/* Fine-tune or add Neo Mid-Points in Air */}
-          <div className="space-y-1.5 pt-1 border-t border-white/10">
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-[10px] text-zinc-300">
-                Neo-Kurvenpunkt in der Luft:
-              </span>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => addInterpolatedMidPoint(-1.7)}
-                  className="rounded-lg border border-cyan-400/30 bg-cyan-500/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-cyan-300 hover:bg-cyan-500/25 transition"
-                >
-                  + Links-Neo
-                </button>
-                <button
-                  type="button"
-                  onClick={() => addInterpolatedMidPoint(1.7)}
-                  className="rounded-lg border border-cyan-400/30 bg-cyan-500/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-cyan-300 hover:bg-cyan-500/25 transition"
-                >
-                  + Rechts-Neo
-                </button>
-                <button
-                  type="button"
-                  onClick={() => addInterpolatedMidPoint(0)}
-                  className="rounded-lg border border-purple-400/30 bg-purple-500/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-purple-300 hover:bg-purple-500/25 transition"
-                  title="Zwischenpunkt mittig auf der Sprungbahn setzen (perfekt für Z- & Höhen-Justierung)"
-                >
-                  + Mitte
-                </button>
-              </div>
-            </div>
-
-            {draftMidPoints.map((pt, idx) => {
-              const isPtActive =
-                activeDraftMidPointIndex === idx ||
-                (activeDraftMidPointIndex === null && idx === 0);
-
-              return (
-                <div
-                  key={idx}
-                  onClick={() => setActiveDraftMidPointIndex(idx)}
-                  className={`space-y-1.5 rounded-xl border p-2.5 font-mono text-[10px] transition cursor-pointer ${
-                    isPtActive
-                      ? 'border-cyan-400/70 bg-cyan-950/25 ring-1 ring-cyan-400/40'
-                      : 'border-white/10 bg-zinc-900/90 hover:border-white/20'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-cyan-300">
-                        Zwischenpunkt #{idx + 1}
-                      </span>
-                      {isPtActive && (
-                        <span className="rounded bg-cyan-400/20 px-1 py-0.2 text-[8px] font-bold text-cyan-300 border border-cyan-400/30">
-                          3D-Fokus
-                        </span>
-                      )}
-                      <span className="rounded bg-white/10 px-1.5 py-0.5 text-[9px] text-zinc-300">
-                        X: {pt.x.toFixed(1)} | Y: {pt.y.toFixed(1)} | Z: {pt.z.toFixed(1)}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeDraftMidPoint(idx);
-                      }}
-                      title="Zwischenpunkt löschen"
-                      className="flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[10px] text-rose-300 hover:bg-rose-500/40 transition"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                      <span>Löschen</span>
-                    </button>
-                  </div>
-
-                {/* 3 Axes Controls: X, Y, Z */}
-                <div className="grid grid-cols-3 gap-1.5 pt-1">
-                  {/* X-Achse */}
-                  <div className="flex flex-col gap-1 rounded-lg border border-white/5 bg-zinc-950/70 p-1.5">
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="font-bold text-rose-400">X (Breite)</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={pt.x}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value);
-                          if (!Number.isNaN(val)) {
-                            updateDraftMidPoint(idx, { ...pt, x: Number(val.toFixed(1)) });
-                          }
-                        }}
-                        className="w-12 rounded border border-white/15 bg-black/60 px-1 py-0.5 text-right font-mono text-[10px] text-zinc-100 focus:border-cyan-400 focus:outline-none"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-1">
-                      <button
-                        type="button"
-                        onClick={() => nudgeMidPoint(idx, -0.5, 0, 0)}
-                        title="Nach links (-0.5 X)"
-                        className="rounded bg-white/10 py-1 text-center font-bold text-zinc-200 hover:bg-white/20 active:scale-95 transition"
-                      >
-                        -X
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => nudgeMidPoint(idx, 0.5, 0, 0)}
-                        title="Nach rechts (+0.5 X)"
-                        className="rounded bg-white/10 py-1 text-center font-bold text-zinc-200 hover:bg-white/20 active:scale-95 transition"
-                      >
-                        +X
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Y-Achse */}
-                  <div className="flex flex-col gap-1 rounded-lg border border-white/5 bg-zinc-950/70 p-1.5">
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="font-bold text-emerald-400">Y (Höhe)</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={pt.y}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value);
-                          if (!Number.isNaN(val)) {
-                            updateDraftMidPoint(idx, { ...pt, y: Number(val.toFixed(1)) });
-                          }
-                        }}
-                        className="w-12 rounded border border-white/15 bg-black/60 px-1 py-0.5 text-right font-mono text-[10px] text-zinc-100 focus:border-cyan-400 focus:outline-none"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-1">
-                      <button
-                        type="button"
-                        onClick={() => nudgeMidPoint(idx, 0, -0.4, 0)}
-                        title="Tiefer (-0.4 Y)"
-                        className="rounded bg-white/10 py-1 text-center font-bold text-zinc-200 hover:bg-white/20 active:scale-95 transition"
-                      >
-                        -Y
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => nudgeMidPoint(idx, 0, 0.4, 0)}
-                        title="Höher (+0.4 Y)"
-                        className="rounded bg-white/10 py-1 text-center font-bold text-zinc-200 hover:bg-white/20 active:scale-95 transition"
-                      >
-                        +Y
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Z-Achse */}
-                  <div className="flex flex-col gap-1 rounded-lg border border-white/5 bg-zinc-950/70 p-1.5">
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="font-bold text-cyan-400">Z (Tiefe)</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={pt.z}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value);
-                          if (!Number.isNaN(val)) {
-                            updateDraftMidPoint(idx, { ...pt, z: Number(val.toFixed(1)) });
-                          }
-                        }}
-                        className="w-12 rounded border border-white/15 bg-black/60 px-1 py-0.5 text-right font-mono text-[10px] text-zinc-100 focus:border-cyan-400 focus:outline-none"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-1">
-                      <button
-                        type="button"
-                        onClick={() => nudgeMidPoint(idx, 0, 0, -0.5)}
-                        title="Zurück / Näher (-0.5 Z)"
-                        className="rounded bg-white/10 py-1 text-center font-bold text-zinc-200 hover:bg-white/20 active:scale-95 transition"
-                      >
-                        -Z
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => nudgeMidPoint(idx, 0, 0, 0.5)}
-                        title="Vor / Weiter (+0.5 Z)"
-                        className="rounded bg-white/10 py-1 text-center font-bold text-zinc-200 hover:bg-white/20 active:scale-95 transition"
-                      >
-                        +Z
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
 
           {/* Save Current Camera Angle Button */}
           <button
