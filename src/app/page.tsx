@@ -19,10 +19,15 @@ import {
   AlertTriangle,
   CheckCircle2,
   Loader2,
+  EyeOff,
+  RotateCcw,
 } from 'lucide-react';
 import { useJLStore } from '@/store/useJLStore';
 import { MODULE_DIFFICULTY_CONFIG } from '@/constants/jumpleagueConfig';
-import { sortModulesNumerically } from '@/lib/mockModuleGenerator';
+import {
+  INITIAL_MODULES,
+  sortModulesNumerically,
+} from '@/lib/mockModuleGenerator';
 import { JLModule, ModuleDifficulty } from '@/types/jumpleague';
 import { parseSchematicFile } from '@/lib/schematicParser';
 import { AdminAuthModal } from '@/components/hud/AdminAuthModal';
@@ -72,10 +77,13 @@ export default function ModuleHubPage() {
   const addModule = useJLStore((s) => s.addModule);
   const deleteModule = useJLStore((s) => s.deleteModule);
   const replaceModuleSchematic = useJLStore((s) => s.replaceModuleSchematic);
+  const hideDefaultModules = useJLStore((s) => s.hideDefaultModules);
+  const restoreDefaultModules = useJLStore((s) => s.restoreDefaultModules);
 
   // Local Page State
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isHidingDefaults, setIsHidingDefaults] = useState(false);
   const [moduleToDelete, setModuleToDelete] = useState<JLModule | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [moduleToReplace, setModuleToReplace] = useState<string | null>(null);
@@ -191,6 +199,59 @@ export default function ModuleHubPage() {
     } finally {
       setIsDeleting(false);
       setModuleToDelete(null);
+    }
+  };
+
+  const defaultModuleIds = useMemo(
+    () => new Set(INITIAL_MODULES.map((m) => m.id)),
+    []
+  );
+
+  const hasDefaultModules = useMemo(
+    () => modules.some((m) => defaultModuleIds.has(m.id)),
+    [modules, defaultModuleIds]
+  );
+
+  const handleHideDefaultModules = async () => {
+    setIsHidingDefaults(true);
+    try {
+      await hideDefaultModules();
+      setToast({
+        type: 'success',
+        message:
+          'Alle vorinstallierten Standard-Module wurden dauerhaft ausgeblendet.',
+      });
+      setTimeout(() => setToast(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to hide default modules:', err);
+      setToast({
+        type: 'error',
+        message: `Fehler beim Ausblenden: ${err.message || 'Konnte Standard-Module nicht entfernen'}`,
+      });
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setIsHidingDefaults(false);
+    }
+  };
+
+  const handleRestoreDefaultModules = async () => {
+    setIsHidingDefaults(true);
+    try {
+      await restoreDefaultModules();
+      setToast({
+        type: 'success',
+        message: 'Standard-Module wurden wiederhergestellt.',
+      });
+      setTimeout(() => setToast(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to restore default modules:', err);
+      setToast({
+        type: 'error',
+        message: `Fehler beim Wiederherstellen: ${err.message || 'Konnte Standard-Module nicht laden'}`,
+      });
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setIsHidingDefaults(false);
     }
   };
 
@@ -412,6 +473,79 @@ export default function ModuleHubPage() {
             </div>
           </div>
         </section>
+
+        {/* Admin Modul-Management Bar (only visible in Admin Mode) */}
+        {isAdminMode && (
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-purple-500/30 bg-purple-950/20 p-3.5 shadow-xl backdrop-blur-xl">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-purple-400/40 bg-purple-500/20 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.3)]">
+                <ShieldCheck className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-purple-300">
+                  Admin Modul-Verwaltung
+                </div>
+                <div className="text-xs text-zinc-300">
+                  {modules.length} {modules.length === 1 ? 'Modul' : 'Module'} im System •{' '}
+                  <span
+                    className={
+                      hasDefaultModules
+                        ? 'text-zinc-400'
+                        : 'text-emerald-400 font-semibold'
+                    }
+                  >
+                    {hasDefaultModules
+                      ? 'Standard-Module aktiv'
+                      : 'Nur eigene/importierte Module aktiv'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsCreateModalOpen(true)}
+                className="flex items-center gap-2 rounded-xl border border-purple-400/60 bg-purple-500/25 px-3.5 py-2 text-xs font-bold text-purple-200 shadow-md transition hover:border-purple-400 hover:bg-purple-500/40 hover:text-white active:scale-95"
+              >
+                <Plus className="h-4 w-4" />
+                <span>+ Neues Modul hinzufügen</span>
+              </button>
+
+              {hasDefaultModules ? (
+                <button
+                  type="button"
+                  onClick={handleHideDefaultModules}
+                  disabled={isHidingDefaults}
+                  className="flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs font-bold text-amber-300 shadow-md transition hover:border-amber-400 hover:bg-amber-500/25 hover:text-white active:scale-95 disabled:opacity-50"
+                  title="Alle vorinstallierten Mock-Module dauerhaft ausblenden / entfernen"
+                >
+                  {isHidingDefaults ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-amber-400" />
+                  ) : (
+                    <EyeOff className="h-4 w-4 text-amber-400" />
+                  )}
+                  <span>Standard-Module ausblenden</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleRestoreDefaultModules}
+                  disabled={isHidingDefaults}
+                  className="flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2 text-xs font-bold text-emerald-300 shadow-md transition hover:border-emerald-400 hover:bg-emerald-500/25 hover:text-white active:scale-95 disabled:opacity-50"
+                  title="Vorinstallierte Standard-Module wieder einblenden"
+                >
+                  {isHidingDefaults ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-emerald-400" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4 text-emerald-400" />
+                  )}
+                  <span>Standard-Module wieder einblenden</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Modul-Grid (Numerisch sortiert: E1, E2, ... E10) & Admin '+ Neues Modul' Card */}
         {visibleModules.length === 0 && !isAdminMode ? (

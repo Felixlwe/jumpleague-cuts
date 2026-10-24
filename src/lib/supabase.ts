@@ -296,16 +296,24 @@ export function mapModuleToDbRow(module: JLModule): SupabaseModuleRow {
 }
 
 /**
- * Loads all active modules from Supabase. Returns null if offline or table does not exist.
+ * Result structure when querying modules from Supabase
  */
-export async function fetchModulesFromSupabase(): Promise<JLModule[] | null> {
+export interface FetchModulesResult {
+  activeModules: JLModule[];
+  deletedIds: string[];
+}
+
+/**
+ * Loads all modules from Supabase (both active and soft-deleted).
+ * Returns null if offline or table does not exist.
+ */
+export async function fetchModulesFromSupabase(): Promise<FetchModulesResult | null> {
   if (!supabase) return null;
 
   try {
     const { data, error } = await supabase
       .from('modules')
       .select('*')
-      .eq('is_deleted', false)
       .order('created_at', { ascending: true });
 
     if (error) {
@@ -313,8 +321,20 @@ export async function fetchModulesFromSupabase(): Promise<JLModule[] | null> {
       return null;
     }
 
-    if (!data) return [];
-    return data.map(mapDbRowToModule);
+    if (!data) return { activeModules: [], deletedIds: [] };
+
+    const activeModules: JLModule[] = [];
+    const deletedIds: string[] = [];
+
+    for (const row of data) {
+      if (row.is_deleted) {
+        deletedIds.push(String(row.id));
+      } else {
+        activeModules.push(mapDbRowToModule(row));
+      }
+    }
+
+    return { activeModules, deletedIds };
   } catch (err) {
     console.warn('[Supabase] Exception fetching modules:', err);
     return null;
@@ -347,27 +367,116 @@ export async function upsertModuleInSupabase(
 }
 
 /**
- * Deletes a module in Supabase (sets is_deleted=true or hard deletes).
+ * Performs a persistent soft-delete via upsert in Supabase.
+ * By writing id, is_deleted: true, and required fields (name, difficulty, short_code, blocks),
+ * Supabase remembers that this module ID is permanently deleted, even for mock/default modules
+ * that did not originally have a database record!
  */
 export async function deleteModuleInSupabase(
-  moduleId: string
+  moduleId: string,
+  fallbackModule?: Partial<JLModule>
 ): Promise<boolean> {
   if (!supabase) return false;
 
   try {
-    // Soft delete so existing references don't crash, and fallback hard delete
-    const { error } = await supabase
-      .from('modules')
-      .update({ is_deleted: true })
-      .eq('id', moduleId);
+    const row: SupabaseModuleRow = {
+      id: moduleId,
+      short_code: fallbackModule?.shortCode || moduleId,
+      name: fallbackModule?.name || moduleId,
+      difficulty: fallbackModule?.difficulty || 'EASY',
+      description: fallbackModule?.description || '',
+      blocks: fallbackModule?.blocks || [],
+      spawn_point: fallbackModule?.spawnPoint
+        ? [fallbackModule.spawnPoint.x, fallbackModule.spawnPoint.y, fallbackModule.spawnPoint.z]
+        : [0, 0, 0],
+      finish_point: fallbackModule?.finishPoint
+        ? [fallbackModule.finishPoint.x, fallbackModule.finishPoint.y, fallbackModule.finishPoint.z]
+        : [0, 0, 0],
+      is_deleted: true,
+      created_at: fallbackModule?.createdAt || new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from('modules').upsert([row], {
+      onConflict: 'id',
+    });
 
     if (error) {
-      // Try hard delete if soft delete column doesn't match
-      await supabase.from('modules').delete().eq('id', moduleId);
+      console.warn('[Supabase] Error soft-deleting module via upsert:', error.message);
+      return false;
     }
     return true;
   } catch (err) {
     console.warn('[Supabase] Exception deleting module:', err);
+    return false;
+  }
+}
+
+/**
+ * Soft deletes multiple modules at once in Supabase using upsert.
+ */
+export async function bulkSoftDeleteModulesInSupabase(
+  modulesToDelete: Partial<JLModule>[]
+): Promise<boolean> {
+  if (!supabase || modulesToDelete.length === 0) return false;
+
+  try {
+    const rows: SupabaseModuleRow[] = modulesToDelete
+      .map((m) => ({
+        id: m.id || '',
+        short_code: m.shortCode || m.id || '',
+        name: m.name || m.id || '',
+        difficulty: m.difficulty || 'EASY',
+        description: m.description || '',
+        blocks: m.blocks || [],
+        spawn_point: m.spawnPoint
+          ? [m.spawnPoint.x, m.spawnPoint.y, m.spawnPoint.z]
+          : [0, 0, 0],
+        finish_point: m.finishPoint
+          ? [m.finishPoint.x, m.finishPoint.y, m.finishPoint.z]
+          : [0, 0, 0],
+        is_deleted: true,
+        created_at: m.createdAt || new Date().toISOString(),
+      }))
+      .filter((r) => r.id.length > 0);
+
+    const { error } = await supabase.from('modules').upsert(rows, {
+      onConflict: 'id',
+    });
+
+    if (error) {
+      console.warn('[Supabase] Error bulk soft-deleting modules:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] Exception bulk soft-deleting modules:', err);
+    return false;
+  }
+}
+
+/**
+ * Restores multiple soft-deleted modules in Supabase by setting is_deleted: false.
+ */
+export async function bulkRestoreModulesInSupabase(
+  modulesToRestore: JLModule[]
+): Promise<boolean> {
+  if (!supabase || modulesToRestore.length === 0) return false;
+
+  try {
+    const rows = modulesToRestore.map((m) =>
+      mapModuleToDbRow({ ...m, isDeleted: false })
+    );
+    const { error } = await supabase.from('modules').upsert(rows, {
+      onConflict: 'id',
+    });
+
+    if (error) {
+      console.warn('[Supabase] Error bulk restoring modules:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] Exception bulk restoring modules:', err);
     return false;
   }
 }

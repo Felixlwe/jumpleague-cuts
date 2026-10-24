@@ -18,7 +18,15 @@ import {
   fetchModulesFromSupabase,
   upsertModuleInSupabase,
   deleteModuleInSupabase,
+  bulkSoftDeleteModulesInSupabase,
+  bulkRestoreModulesInSupabase,
 } from '@/lib/supabase';
+import {
+  getLocalDeletedModuleIds,
+  saveLocalDeletedModuleIds,
+  addLocalDeletedModuleId,
+  removeLocalDeletedModuleIds,
+} from '@/lib/moduleStorage';
 
 export type AppMode = 'EXPLORE' | 'SUBMIT' | 'ADMIN';
 export type BlockPickStage = 'START' | 'MID' | 'END';
@@ -112,6 +120,7 @@ export interface JLStoreState {
   isAdminMode: boolean;
   isAdminAuthModalOpen: boolean;
   isSyncingWithSupabase: boolean;
+  deletedModuleIds: string[];
 
   // Core Actions
   selectModule: (moduleId: string) => void;
@@ -121,6 +130,8 @@ export interface JLStoreState {
     partial: Partial<JLModule>
   ) => Promise<void> | void;
   deleteModule: (moduleId: string) => Promise<void> | void;
+  hideDefaultModules: () => Promise<void>;
+  restoreDefaultModules: () => Promise<void>;
   replaceModuleSchematic: (
     moduleId: string,
     newBlocks: VoxelBlock[],
@@ -216,10 +227,19 @@ function getInitialAdminState(): { auth: boolean; mode: boolean } {
   }
 }
 
+function getInitialModules(): JLModule[] {
+  if (typeof window === 'undefined') return INITIAL_MODULES;
+  const deletedSet = new Set(getLocalDeletedModuleIds());
+  if (deletedSet.size === 0) return INITIAL_MODULES;
+  return INITIAL_MODULES.filter((m) => !deletedSet.has(m.id));
+}
+
 export const useJLStore = create<JLStoreState>()(
   persist(
     (set, get) => ({
-      modules: INITIAL_MODULES,
+      modules: getInitialModules(),
+      deletedModuleIds:
+        typeof window !== 'undefined' ? getLocalDeletedModuleIds() : [],
       cuts: INITIAL_CUTS,
       selectedModuleId: 'E1',
       selectedCutId: null,
@@ -270,9 +290,12 @@ export const useJLStore = create<JLStoreState>()(
       },
 
       addModule: async (newModule) => {
-        // 1. Zuerst direkt an Supabase senden
+        // Falls dieses Modul zuvor als gelöscht markiert war, aus deleted-Liste entfernen
+        removeLocalDeletedModuleIds([newModule.id]);
+
+        // 1. Zuerst direkt an Supabase senden (mit is_deleted: false)
         try {
-          await upsertModuleInSupabase(newModule);
+          await upsertModuleInSupabase({ ...newModule, isDeleted: false });
         } catch (err) {
           console.warn('[Store] Fehler beim Speichern des Moduls in Supabase:', err);
         }
@@ -285,8 +308,11 @@ export const useJLStore = create<JLStoreState>()(
             ? state.modules.map((m, idx) => (idx === existingIdx ? newModule : m))
             : [newModule, ...state.modules];
 
+        const nextDeleted = state.deletedModuleIds.filter((id) => id !== newModule.id);
+
         set({
           modules: updatedModules,
+          deletedModuleIds: nextDeleted,
           selectedModuleId: newModule.id,
           selectedCutId: null,
           draftStartBlock: null,
@@ -322,16 +348,19 @@ export const useJLStore = create<JLStoreState>()(
       },
 
       deleteModule: async (moduleId) => {
-        // 1. Zuerst direkt an Supabase senden
-        try {
-          await deleteModuleInSupabase(moduleId);
-        } catch (err) {
-          console.warn('[Store] Fehler beim Löschen des Moduls in Supabase:', err);
-        }
-
-        // 2. Danach den lokalen State aktualisieren
         const state = get();
+        const targetModule =
+          state.modules.find((m) => m.id === moduleId) ||
+          INITIAL_MODULES.find((m) => m.id === moduleId);
+
+        // 1. Backup im localStorage sichern
+        addLocalDeletedModuleId(moduleId);
+
+        // 2. Lokalen State sofort aktualisieren
         const nextModules = state.modules.filter((m) => m.id !== moduleId);
+        const nextDeleted = Array.from(
+          new Set([...state.deletedModuleIds, moduleId])
+        );
         const nextSelected =
           state.selectedModuleId === moduleId
             ? nextModules[0]?.id || ''
@@ -339,10 +368,77 @@ export const useJLStore = create<JLStoreState>()(
 
         set({
           modules: nextModules,
+          deletedModuleIds: nextDeleted,
           selectedModuleId: nextSelected,
           selectedCutId: null,
           cameraResetCounter: state.cameraResetCounter + 1,
         });
+
+        // 3. Echtes Soft-Delete per upsert in Supabase (merkt sich auch Mock-IDs dauerhaft)
+        try {
+          await deleteModuleInSupabase(moduleId, targetModule);
+        } catch (err) {
+          console.warn('[Store] Fehler beim Soft-Delete des Moduls in Supabase:', err);
+        }
+      },
+
+      hideDefaultModules: async () => {
+        const state = get();
+        const defaultModules = INITIAL_MODULES;
+        const defaultIds = defaultModules.map((m) => m.id);
+
+        // 1. Backup im localStorage sichern
+        const nextDeletedSet = new Set([...state.deletedModuleIds, ...defaultIds]);
+        saveLocalDeletedModuleIds(nextDeletedSet);
+
+        // 2. Lokalen State sofort filtern
+        const nextModules = state.modules.filter((m) => !defaultIds.includes(m.id));
+        const nextSelected = defaultIds.includes(state.selectedModuleId)
+          ? nextModules[0]?.id || ''
+          : state.selectedModuleId;
+
+        set({
+          modules: nextModules,
+          deletedModuleIds: Array.from(nextDeletedSet),
+          selectedModuleId: nextSelected,
+          selectedCutId: null,
+          cameraResetCounter: state.cameraResetCounter + 1,
+        });
+
+        // 3. In Supabase per bulk upsert mit is_deleted: true sichern
+        try {
+          await bulkSoftDeleteModulesInSupabase(defaultModules);
+        } catch (err) {
+          console.warn('[Store] Fehler beim Ausblenden der Standard-Module in Supabase:', err);
+        }
+      },
+
+      restoreDefaultModules: async () => {
+        const state = get();
+        const defaultModules = INITIAL_MODULES;
+        const defaultIds = new Set(defaultModules.map((m) => m.id));
+
+        // 1. Aus localStorage entfernen
+        removeLocalDeletedModuleIds(defaultIds);
+
+        // 2. Lokalen State aktualisieren (Default-Module wieder aufnehmen)
+        const nextDeleted = state.deletedModuleIds.filter((id) => !defaultIds.has(id));
+        const moduleMap = new Map<string, JLModule>();
+        defaultModules.forEach((m) => moduleMap.set(m.id, m));
+        state.modules.forEach((m) => moduleMap.set(m.id, m));
+
+        set({
+          modules: Array.from(moduleMap.values()),
+          deletedModuleIds: nextDeleted,
+          cameraResetCounter: state.cameraResetCounter + 1,
+        });
+
+        // 3. In Supabase wiederherstellen (is_deleted: false)
+        try {
+          await bulkRestoreModulesInSupabase(defaultModules);
+        } catch (err) {
+          console.warn('[Store] Fehler beim Wiederherstellen der Standard-Module in Supabase:', err);
+        }
       },
 
       replaceModuleSchematic: async (moduleId, newBlocks, dimensions, name) => {
@@ -494,33 +590,81 @@ export const useJLStore = create<JLStoreState>()(
 
       syncModulesFromSupabase: async () => {
         try {
-          const remoteModules = await fetchModulesFromSupabase();
-          if (remoteModules !== null && remoteModules.length > 0) {
-            set((state) => {
-              const moduleMap = new Map<string, JLModule>();
-              // 1. Basis Mock-Module als Fundament
-              INITIAL_MODULES.forEach((m) => moduleMap.set(m.id, m));
-              // 2. Lokale State-Module einbeziehen
-              state.modules.forEach((m) => moduleMap.set(m.id, m));
-              // 3. Aus Supabase geladene Module (is_deleted = false) haben Priorität
-              remoteModules.forEach((m) => moduleMap.set(m.id, m));
+          // 1. Hole gelöschte IDs aus dem localStorage als verlässliches Backup
+          const localDeleted = getLocalDeletedModuleIds();
+          const deletedSet = new Set<string>(localDeleted);
 
-              return { modules: Array.from(moduleMap.values()) };
-            });
-          } else if (remoteModules === null) {
-            // Reiner Fallback auf lokale Mock-Daten, falls Fetch-Anfrage fehlschlägt
-            set((state) => ({
-              modules: state.modules.length > 0 ? state.modules : INITIAL_MODULES,
-            }));
+          // 2. Hole alle Einträge aus public.modules (auch is_deleted = true)
+          const result = await fetchModulesFromSupabase();
+
+          let remoteActive: JLModule[] = [];
+          if (result !== null) {
+            // Füge alle remote soft-gelöschten IDs hinzu
+            result.deletedIds.forEach((id) => deletedSet.add(id));
+            remoteActive = result.activeModules;
+
+            // Aktualisiere das Backup im localStorage mit den remote ermittelten IDs
+            saveLocalDeletedModuleIds(deletedSet);
           }
+
+          // 3. Modul-Katalog zusammensetzen und strikt gegen deletedSet filtern
+          set((state) => {
+            const moduleMap = new Map<string, JLModule>();
+
+            // A. Basis Mock-Module als Fundament (nur wenn NICHT gelöscht)
+            INITIAL_MODULES.forEach((m) => {
+              if (!deletedSet.has(m.id)) {
+                moduleMap.set(m.id, m);
+              }
+            });
+
+            // B. Lokale State-Module einbeziehen (nur wenn NICHT gelöscht)
+            state.modules.forEach((m) => {
+              if (!deletedSet.has(m.id)) {
+                moduleMap.set(m.id, m);
+              }
+            });
+
+            // C. Aus Supabase geladene aktive Module haben höchste Priorität
+            remoteActive.forEach((m) => {
+              if (!deletedSet.has(m.id)) {
+                moduleMap.set(m.id, m);
+              }
+            });
+
+            const nextModules = Array.from(moduleMap.values());
+            const nextSelected =
+              deletedSet.has(state.selectedModuleId) ||
+              !moduleMap.has(state.selectedModuleId)
+                ? nextModules[0]?.id || ''
+                : state.selectedModuleId;
+
+            return {
+              modules: nextModules,
+              deletedModuleIds: Array.from(deletedSet),
+              selectedModuleId: nextSelected,
+            };
+          });
         } catch (err) {
           console.warn(
             '[Store] Fehler beim Laden der Module aus Supabase, nutze Fallback:',
             err
           );
-          set((state) => ({
-            modules: state.modules.length > 0 ? state.modules : INITIAL_MODULES,
-          }));
+          const localDeleted = new Set(getLocalDeletedModuleIds());
+          set((state) => {
+            const currentList =
+              state.modules.length > 0 ? state.modules : INITIAL_MODULES;
+            const filtered = currentList.filter((m) => !localDeleted.has(m.id));
+            const nextSelected =
+              localDeleted.has(state.selectedModuleId)
+                ? filtered[0]?.id || ''
+                : state.selectedModuleId;
+            return {
+              modules: filtered,
+              deletedModuleIds: Array.from(localDeleted),
+              selectedModuleId: nextSelected,
+            };
+          });
         }
       },
 
@@ -781,16 +925,19 @@ export const useJLStore = create<JLStoreState>()(
         void deleteCutFromSupabase(cutId);
       },
 
-      resetStoreToDefaults: () =>
+      resetStoreToDefaults: () => {
+        saveLocalDeletedModuleIds([]);
         set({
           modules: INITIAL_MODULES,
+          deletedModuleIds: [],
           cuts: INITIAL_CUTS,
           selectedModuleId: 'E1',
           selectedCutId: null,
           showCutLines: true,
           filters: DEFAULT_FILTERS,
           activeMode: 'EXPLORE',
-        }),
+        });
+      },
     }),
     {
       name: 'jumpleague-cuts-jlstore-v2',
