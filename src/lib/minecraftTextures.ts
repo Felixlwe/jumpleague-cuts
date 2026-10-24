@@ -95,6 +95,90 @@ export async function resolveTextureUrl(textureName: string): Promise<string> {
 }
 
 /**
+ * Creates an authentic 16x16 pixel-art canvas texture for classic Minecraft skulls
+ */
+function createSkullCanvas(skullType: string): HTMLCanvasElement {
+  if (typeof document === 'undefined') return {} as HTMLCanvasElement;
+  const canvas = document.createElement('canvas');
+  canvas.width = 16;
+  canvas.height = 16;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return canvas;
+
+  if (skullType.includes('creeper')) {
+    // Creeper face: green textured with black mouth and eyes
+    ctx.fillStyle = '#4ade80';
+    ctx.fillRect(0, 0, 16, 16);
+    ctx.fillStyle = '#22c55e';
+    ctx.fillRect(2, 2, 4, 4);
+    ctx.fillRect(10, 2, 4, 4);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(3, 4, 3, 3);
+    ctx.fillRect(10, 4, 3, 3);
+    ctx.fillRect(6, 7, 4, 5);
+    ctx.fillRect(5, 9, 6, 4);
+    ctx.fillRect(5, 12, 2, 3);
+    ctx.fillRect(9, 12, 2, 3);
+  } else if (skullType.includes('wither')) {
+    // Wither Skeleton: dark charcoal skull
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(0, 0, 16, 16);
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(1, 1, 14, 14);
+    ctx.fillStyle = '#020617';
+    ctx.fillRect(3, 4, 3, 3);
+    ctx.fillRect(10, 4, 3, 3);
+    ctx.fillRect(7, 8, 2, 2);
+    ctx.fillRect(4, 11, 8, 2);
+  } else if (skullType.includes('zombie')) {
+    // Zombie: green skin with dark hair
+    ctx.fillStyle = '#558b2f';
+    ctx.fillRect(0, 0, 16, 16);
+    ctx.fillStyle = '#33691e';
+    ctx.fillRect(0, 0, 16, 4);
+    ctx.fillStyle = '#1b5e20';
+    ctx.fillRect(3, 6, 3, 2);
+    ctx.fillRect(10, 6, 3, 2);
+    ctx.fillStyle = '#2e7d32';
+    ctx.fillRect(5, 9, 6, 2);
+  } else if (skullType.includes('skeleton')) {
+    // Skeleton: bone white skull
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(0, 0, 16, 16);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillRect(1, 1, 14, 14);
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(3, 4, 3, 3);
+    ctx.fillRect(10, 4, 3, 3);
+    ctx.fillRect(7, 8, 2, 2);
+    ctx.fillRect(4, 11, 8, 2);
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(5, 11, 2, 2);
+    ctx.fillRect(9, 11, 2, 2);
+  } else {
+    // Player / Steve Head: brown hair, skin, blue eyes
+    ctx.fillStyle = '#d97706';
+    ctx.fillRect(0, 0, 16, 16);
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(0, 0, 16, 5);
+    ctx.fillRect(0, 5, 2, 2);
+    ctx.fillRect(14, 5, 2, 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(3, 7, 4, 2);
+    ctx.fillRect(9, 7, 4, 2);
+    ctx.fillStyle = '#2563eb';
+    ctx.fillRect(5, 7, 2, 2);
+    ctx.fillRect(9, 7, 2, 2);
+    ctx.fillStyle = '#b45309';
+    ctx.fillRect(6, 9, 4, 2);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(5, 11, 6, 2);
+  }
+
+  return canvas;
+}
+
+/**
  * Creates a 16x16 crisp placeholder canvas so Three.js has immediate valid texture data
  */
 function createPlaceholderCanvas(name: string): HTMLCanvasElement {
@@ -122,6 +206,26 @@ function createPlaceholderCanvas(name: string): HTMLCanvasElement {
 }
 
 /**
+ * Retrieves or creates a custom skull / head texture
+ */
+export function getSkullTexture(skullType: string): THREE.Texture {
+  const cleanName = `head_${sanitizeTextureName(skullType)}`;
+  const cached = textureCache.get(cleanName);
+  if (cached) return cached;
+
+  const canvas = createSkullCanvas(cleanName);
+  const texture = new THREE.Texture<TexImageSource>(canvas);
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+
+  textureCache.set(cleanName, texture);
+  return texture;
+}
+
+/**
  * Loads a real 16x16 Minecraft texture as THREE.Texture with:
  * - magFilter = THREE.NearestFilter
  * - minFilter = THREE.NearestFilter
@@ -130,6 +234,10 @@ function createPlaceholderCanvas(name: string): HTMLCanvasElement {
  */
 export function getMinecraftTexture(textureName: string): THREE.Texture {
   const cleanName = sanitizeTextureName(textureName);
+
+  if (cleanName.includes('head') || cleanName.includes('skull')) {
+    return getSkullTexture(cleanName);
+  }
 
   const cached = textureCache.get(cleanName);
   if (cached) {
@@ -220,6 +328,14 @@ export function resolveTextureNameForBlock(blockType: string): string {
   if (lower === 'dirt_path' || lower === 'grass_path') return 'dirt_path_top';
   if (lower === 'podzol') return 'podzol_top';
   if (lower === 'mycelium') return 'mycelium_top';
+  if (lower === 'honey_block') return 'honey_block_side';
+  if (lower === 'honeycomb_block') return 'honeycomb_block';
+  if (lower === 'chain') return 'iron_chain';
+  if (lower === 'wall_torch') return 'torch';
+  if (lower === 'soul_wall_torch') return 'soul_torch';
+  if (lower === 'redstone_wall_torch') return 'redstone_torch';
+  if (lower === 'tall_grass') return 'tall_grass_bottom';
+  if (lower === 'large_fern') return 'large_fern_bottom';
 
   // 2. Anvils
   if (lower === 'anvil' || lower === 'chipped_anvil' || lower === 'damaged_anvil') {
@@ -336,7 +452,10 @@ export function resolveTextureNameForBlock(blockType: string): string {
 
 /**
  * Multi-Face & Biome-Tint Material Resolver:
- * - anvil / chipped_anvil / damaged_anvil: Top anvil_top, Seiten/Boden anvil
+ * - anvil / chipped_anvil / damaged_anvil: Top anvil_top, Seiten/Boden anvil (Metalness 0.05, Roughness 0.75)
+ * - honey_block: Transparenter Bernsteinton, Top/Boden/Seiten getrennt
+ * - lever: Base Cobblestone, Handle lever.png mit Alpha-Transparenz
+ * - dead_bush & corals: Transparente Pflanzen-/Korallentexturen
  * - grass_block: Top grass_block_top (mit grünem Biome-Tint), Boden dirt, Seiten grass_block_side
  * - smooth_stone_slab: Top/Boden smooth_stone, Seiten smooth_stone_slab_side
  * - sandstone / red_sandstone: Top _top, Boden _bottom, Seiten Basis
@@ -363,17 +482,15 @@ export function getMinecraftBlockMaterial(
 
     const bodyMat = new THREE.MeshStandardMaterial({
       map: bodyTex,
-      roughness: 0.6,
-      metalness: 0.8,
+      roughness: 0.75,
+      metalness: 0.05,
     });
     const topMat = new THREE.MeshStandardMaterial({
       map: topTex,
-      roughness: 0.5,
-      metalness: 0.85,
+      roughness: 0.75,
+      metalness: 0.05,
     });
 
-    // BoxGeometry face groups:
-    // 0: +X (Right), 1: -X (Left), 2: +Y (Top), 3: -Y (Bottom), 4: +Z (Front), 5: -Z (Back)
     const mats: THREE.Material[] = [
       bodyMat,
       bodyMat,
@@ -386,7 +503,135 @@ export function getMinecraftBlockMaterial(
     return mats;
   }
 
-  // 2. Smooth Stone Slab (Multi-Face: Sides have special slab texture, top/bottom is smooth stone)
+  // 2. Honey Block (Translucent Amber Multi-Face)
+  if (raw === 'honey_block') {
+    const topTex = getMinecraftTexture('honey_block_top');
+    const bottomTex = getMinecraftTexture('honey_block_bottom');
+    const sideTex = getMinecraftTexture('honey_block_side');
+
+    const topMat = new THREE.MeshStandardMaterial({
+      map: topTex,
+      transparent: true,
+      opacity: 0.88,
+      roughness: 0.1,
+      metalness: 0.0,
+      depthWrite: true,
+    });
+    const bottomMat = new THREE.MeshStandardMaterial({
+      map: bottomTex,
+      transparent: true,
+      opacity: 0.88,
+      roughness: 0.1,
+      metalness: 0.0,
+      depthWrite: true,
+    });
+    const sideMat = new THREE.MeshStandardMaterial({
+      map: sideTex,
+      transparent: true,
+      opacity: 0.88,
+      roughness: 0.1,
+      metalness: 0.0,
+      depthWrite: true,
+    });
+
+    const mats: THREE.Material[] = [
+      sideMat,
+      sideMat,
+      topMat,
+      bottomMat,
+      sideMat,
+      sideMat,
+    ];
+    materialCache.set(raw, mats);
+    return mats;
+  }
+
+  // 3. Slime Block (Translucent Green)
+  if (raw === 'slime_block') {
+    const tex = getMinecraftTexture('slime_block');
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex,
+      transparent: true,
+      opacity: 0.82,
+      roughness: 0.1,
+      metalness: 0.0,
+      depthWrite: true,
+    });
+    materialCache.set(raw, mat);
+    return mat;
+  }
+
+  // 4. Lever (Handle Texture with Alpha Transparency)
+  if (raw === 'lever') {
+    const tex = getMinecraftTexture('lever');
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex,
+      transparent: true,
+      alphaTest: 0.1,
+      roughness: 0.7,
+      metalness: 0.0,
+      side: THREE.DoubleSide,
+    });
+    materialCache.set(raw, mat);
+    return mat;
+  }
+
+  // 5. Dead Bushes, Corals, Plants, Flowers, Saplings, Grass, Mushrooms (Alpha Tested Cross-Sprites)
+  const isPlantOrCoral =
+    raw.includes('coral') ||
+    raw === 'dead_bush' ||
+    raw.includes('sapling') ||
+    raw.includes('flower') ||
+    raw.includes('tulip') ||
+    raw.includes('orchid') ||
+    raw.includes('daisy') ||
+    raw.includes('allium') ||
+    raw.includes('dandelion') ||
+    raw.includes('poppy') ||
+    raw.includes('cornflower') ||
+    raw.includes('lily_of_the_valley') ||
+    raw.includes('wither_rose') ||
+    raw.includes('sunflower') ||
+    raw.includes('rose_bush') ||
+    raw.includes('peony') ||
+    raw.includes('lilac') ||
+    raw.includes('grass') ||
+    raw.includes('fern') ||
+    raw.includes('mushroom') ||
+    raw.includes('fungus') ||
+    raw.includes('roots') ||
+    raw.includes('sprouts') ||
+    raw === 'sugar_cane';
+
+  if (isPlantOrCoral) {
+    const texName = resolveTextureNameForBlock(raw);
+    const tex = getMinecraftTexture(texName);
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex,
+      transparent: true,
+      alphaTest: 0.1,
+      roughness: 0.8,
+      metalness: 0.0,
+      side: THREE.DoubleSide,
+    });
+    materialCache.set(raw, mat);
+    return mat;
+  }
+
+  // 6. Skulls & Player Heads
+  const isSkull = raw.includes('head') || raw.includes('skull');
+  if (isSkull) {
+    const tex = getSkullTexture(raw);
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex,
+      roughness: 0.8,
+      metalness: 0.0,
+    });
+    materialCache.set(raw, mat);
+    return mat;
+  }
+
+  // 7. Smooth Stone Slab
   if (raw === 'smooth_stone_slab') {
     const topTex = getMinecraftTexture('smooth_stone');
     const sideTex = getMinecraftTexture('smooth_stone_slab_side');
@@ -414,7 +659,7 @@ export function getMinecraftBlockMaterial(
     return mats;
   }
 
-  // 3. Grass Block (Multi-Face with Biome Tint on Top Face)
+  // 8. Grass Block (Multi-Face with Biome Tint on Top Face)
   if (raw === 'grass_block') {
     const topTex = getMinecraftTexture('grass_block_top');
     const sideTex = getMinecraftTexture('grass_block_side');
@@ -449,7 +694,7 @@ export function getMinecraftBlockMaterial(
     return mats;
   }
 
-  // 4. Podzol, Mycelium, Dirt Path (Multi-Face Top + Dirt Bottom)
+  // 9. Podzol, Mycelium, Dirt Path (Multi-Face Top + Dirt Bottom)
   if (raw === 'podzol' || raw === 'mycelium' || raw === 'dirt_path' || raw === 'grass_path') {
     const prefix = raw === 'grass_path' ? 'dirt_path' : raw;
     const topTex = getMinecraftTexture(`${prefix}_top`);
@@ -484,7 +729,7 @@ export function getMinecraftBlockMaterial(
     return mats;
   }
 
-  // 5. Sandstone & Red Sandstone (Multi-Face)
+  // 10. Sandstone & Red Sandstone (Multi-Face)
   if (raw === 'sandstone' || raw === 'red_sandstone') {
     const topTex = getMinecraftTexture(`${raw}_top`);
     const bottomTex = getMinecraftTexture(`${raw}_bottom`);
@@ -518,7 +763,7 @@ export function getMinecraftBlockMaterial(
     return mats;
   }
 
-  // 6. Baumstämme (_log), Säulen (_pillar) & Basalt
+  // 11. Baumstämme (_log), Säulen (_pillar) & Basalt
   const isLog =
     raw.includes('_log') ||
     raw.endsWith('log') ||
@@ -570,7 +815,7 @@ export function getMinecraftBlockMaterial(
     return mats;
   }
 
-  // 7. Crafting Table (Multi-Face)
+  // 12. Crafting Table (Multi-Face)
   if (raw === 'crafting_table') {
     const topTex = getMinecraftTexture('crafting_table_top');
     const sideTex = getMinecraftTexture('crafting_table_side');
@@ -594,7 +839,7 @@ export function getMinecraftBlockMaterial(
     return mats;
   }
 
-  // 8. Bookshelf (Planks on top and bottom)
+  // 13. Bookshelf (Planks on top and bottom)
   if (raw === 'bookshelf') {
     const sideTex = getMinecraftTexture('bookshelf');
     const plankTex = getMinecraftTexture('oak_planks');
@@ -614,7 +859,7 @@ export function getMinecraftBlockMaterial(
     return mats;
   }
 
-  // 9. TNT
+  // 14. TNT
   if (raw === 'tnt') {
     const topTex = getMinecraftTexture('tnt_top');
     const bottomTex = getMinecraftTexture('tnt_bottom');
@@ -636,7 +881,7 @@ export function getMinecraftBlockMaterial(
     return mats;
   }
 
-  // 10. Laub (_leaves), vine und lily_pad (Biome-Tint #7cbd6b & transparent: true, alphaTest: 0.5)
+  // 15. Laub (_leaves), vine und lily_pad
   const isFoliage =
     raw.includes('leaves') || raw === 'vine' || raw === 'lily_pad';
 
@@ -655,7 +900,7 @@ export function getMinecraftBlockMaterial(
     return mat;
   }
 
-  // 11. Glas, Leitern, Zäune, Spinnenweben, Falltüren und Scheiben (transparent: true, alphaTest: 0.1)
+  // 16. Glas, Leitern, Zäune, Spinnenweben, Falltüren und Scheiben (transparent: true, alphaTest: 0.1)
   const isGlass = raw.includes('glass');
   const isLadder = raw.includes('ladder');
   const isFence = raw.includes('fence');
@@ -663,6 +908,7 @@ export function getMinecraftBlockMaterial(
   const isIronBars = raw.includes('iron_bars') || raw === 'bars';
   const isTrapdoor = raw.includes('trapdoor');
   const isPane = raw.includes('pane');
+  const isChain = raw.includes('chain');
 
   if (
     isGlass ||
@@ -671,7 +917,8 @@ export function getMinecraftBlockMaterial(
     isCobweb ||
     isIronBars ||
     isTrapdoor ||
-    isPane
+    isPane ||
+    isChain
   ) {
     const texName = resolveTextureNameForBlock(raw);
     const tex = getMinecraftTexture(texName);
@@ -687,7 +934,57 @@ export function getMinecraftBlockMaterial(
     return mat;
   }
 
-  // 12. Tactical High-Value Blocks (Gold & Emerald)
+  // 17. End Rod & Leuchtquellen (Emissive)
+  if (raw === 'end_rod') {
+    const tex = getMinecraftTexture('end_rod');
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex,
+      emissive: new THREE.Color('#ffffff'),
+      emissiveIntensity: 0.45,
+      roughness: 0.3,
+    });
+    materialCache.set(raw, mat);
+    return mat;
+  }
+
+  if (raw === 'lantern' || raw === 'soul_lantern') {
+    const isSoul = raw.includes('soul');
+    const tex = getMinecraftTexture(raw);
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex,
+      transparent: true,
+      alphaTest: 0.1,
+      emissive: new THREE.Color(isSoul ? '#06b6d4' : '#f59e0b'),
+      emissiveIntensity: 0.45,
+      roughness: 0.5,
+      side: THREE.DoubleSide,
+    });
+    materialCache.set(raw, mat);
+    return mat;
+  }
+
+  if (raw.includes('torch')) {
+    const isSoul = raw.includes('soul');
+    const isRedstone = raw.includes('redstone');
+    const tex = getMinecraftTexture(
+      isSoul ? 'soul_torch' : isRedstone ? 'redstone_torch' : 'torch'
+    );
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex,
+      transparent: true,
+      alphaTest: 0.1,
+      emissive: new THREE.Color(
+        isSoul ? '#06b6d4' : isRedstone ? '#ef4444' : '#f59e0b'
+      ),
+      emissiveIntensity: 0.5,
+      roughness: 0.6,
+      side: THREE.DoubleSide,
+    });
+    materialCache.set(raw, mat);
+    return mat;
+  }
+
+  // 18. Tactical High-Value Blocks (Gold & Emerald)
   if (raw === 'gold_block') {
     const tex = getMinecraftTexture('gold_block');
     const mat = new THREE.MeshStandardMaterial({
@@ -714,7 +1011,7 @@ export function getMinecraftBlockMaterial(
     return mat;
   }
 
-  // 13. Standard Minecraft Solid Blocks, Slabs, Walls, Stairs etc.
+  // 19. Standard Minecraft Solid Blocks, Slabs, Walls, Stairs etc.
   const resolvedTexName = resolveTextureNameForBlock(raw);
   const tex = getMinecraftTexture(resolvedTexName);
   const mat = new THREE.MeshStandardMaterial({

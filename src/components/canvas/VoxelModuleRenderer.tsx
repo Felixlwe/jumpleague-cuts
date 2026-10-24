@@ -9,7 +9,10 @@ import { useJLStore } from '@/store/useJLStore';
 import { VOXEL_BLOCK_LABELS } from '@/constants/jumpleagueConfig';
 import { WorldHtml } from '@/components/three/WorldHtml';
 import { DraggableMidPoint } from '@/components/three/DraggableMidPoint';
-import { useMinecraftBlockMaterial } from '@/lib/minecraftTextures';
+import {
+  useMinecraftBlockMaterial,
+  getMinecraftBlockMaterial,
+} from '@/lib/minecraftTextures';
 
 function isSameCoord(a: Vector3D | null, b: Vector3D): boolean {
   if (!a) return false;
@@ -257,6 +260,24 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       if (blockState.half === 'bottom') return -0.3125;
       return 0.5;
     }
+    if (blockTypeUpper.includes('HEAD') || blockTypeUpper.includes('SKULL')) {
+      return 0.0;
+    }
+    if (blockTypeUpper.includes('DAYLIGHT')) {
+      return -0.125;
+    }
+    if (
+      blockTypeUpper.includes('REPEATER') ||
+      blockTypeUpper.includes('COMPARATOR')
+    ) {
+      return -0.375;
+    }
+    if (blockTypeUpper.includes('CHEST')) {
+      return 0.375;
+    }
+    if (blockTypeUpper === 'LEVER') {
+      return -0.21875;
+    }
     // Ambosse, Zäune, Mauern, Treppen & Vollblöcke haben Oberfläche bei y = 0.5
     return 0.5;
   }, [blockTypeUpper, blockState]);
@@ -274,13 +295,15 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       const headW = isNorthSouth ? 0.625 : 1.0;
       const headD = isNorthSouth ? 1.0 : 0.625;
 
+      const bodyMat = getMinecraftBlockMaterial('anvil');
+
       return (
         <group>
           {/* Amboss-Fußplatte */}
           <mesh
             position={[0, -0.375, 0]}
             geometry={getVoxelBoxGeometry(baseW, 0.25, baseD)}
-            material={material}
+            material={bodyMat}
             castShadow
             receiveShadow
           />
@@ -288,7 +311,7 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
           <mesh
             position={[0, -0.09375, 0]}
             geometry={getVoxelBoxGeometry(neckW, 0.3125, neckD)}
-            material={material}
+            material={bodyMat}
             castShadow
           />
           {/* Amboss-Kopf mit Schlagfläche (Top-Texture) */}
@@ -303,7 +326,229 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       );
     }
 
-    // 1. Slabs (_slab): 1 x 0.5 x 1 mit proportionaler UV-Texturierung
+    // 1. Hebel (Lever): Echtes 3D-Modell mit Cobblestone-Sockel und angewinkeltem Holzhebel
+    if (blockTypeUpper === 'LEVER') {
+      const cobbleMat = getMinecraftBlockMaterial('cobblestone');
+      return (
+        <group>
+          {/* Cobblestone Grundplatte */}
+          <mesh
+            position={[0, -0.40625, 0]}
+            geometry={getVoxelBoxGeometry(0.3125, 0.1875, 0.4375)}
+            material={cobbleMat}
+            castShadow
+            receiveShadow
+          />
+          {/* 3D Hebelgriff mit Alpha-Textur */}
+          <mesh
+            position={[0, -0.22, 0]}
+            rotation={[0.55, 0, 0]}
+            geometry={getVoxelBoxGeometry(0.0625, 0.45, 0.0625)}
+            material={material}
+            castShadow
+          />
+        </group>
+      );
+    }
+
+    // 2. Korallenfächer (_coral_fan / _fan): Flache Fächer auf Boden oder an Wänden
+    const isCoralFan =
+      blockTypeUpper.endsWith('_FAN') || blockTypeUpper.includes('CORAL_FAN');
+    if (isCoralFan) {
+      return (
+        <mesh
+          position={[0, -0.4375, 0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          material={material}
+        >
+          <planeGeometry args={[0.75, 0.75]} />
+        </mesh>
+      );
+    }
+
+    // 3. Korallen, Gestrüpp (Dead Bush), Setzlinge, Blumen, Pilze & Pflanzen: Gekreuzte Ebenen (X-Form)
+    const isPlantOrCoral =
+      blockTypeUpper.includes('CORAL') ||
+      blockTypeUpper === 'DEAD_BUSH' ||
+      blockTypeUpper.includes('SAPLING') ||
+      blockTypeUpper.includes('FLOWER') ||
+      blockTypeUpper.includes('TULIP') ||
+      blockTypeUpper.includes('ORCHID') ||
+      blockTypeUpper.includes('DAISY') ||
+      blockTypeUpper.includes('ALLIUM') ||
+      blockTypeUpper.includes('DANDELION') ||
+      blockTypeUpper.includes('POPPY') ||
+      blockTypeUpper.includes('CORNFLOWER') ||
+      blockTypeUpper.includes('LILY_OF_THE_VALLEY') ||
+      blockTypeUpper.includes('WITHER_ROSE') ||
+      blockTypeUpper.includes('SUNFLOWER') ||
+      blockTypeUpper.includes('ROSE_BUSH') ||
+      blockTypeUpper.includes('PEONY') ||
+      blockTypeUpper.includes('LILAC') ||
+      blockTypeUpper.includes('GRASS') ||
+      blockTypeUpper.includes('FERN') ||
+      blockTypeUpper.includes('MUSHROOM') ||
+      blockTypeUpper.includes('FUNGUS') ||
+      blockTypeUpper.includes('ROOTS') ||
+      blockTypeUpper.includes('SPROUTS') ||
+      blockTypeUpper === 'SUGAR_CANE';
+
+    if (isPlantOrCoral) {
+      return (
+        <group position={[0, -0.05, 0]}>
+          <mesh rotation={[0, Math.PI / 4, 0]} material={material}>
+            <planeGeometry args={[0.875, 0.875]} />
+          </mesh>
+          <mesh rotation={[0, -Math.PI / 4, 0]} material={material}>
+            <planeGeometry args={[0.875, 0.875]} />
+          </mesh>
+        </group>
+      );
+    }
+
+    // 4. Köpfe & Schädel (Player Head, Skeleton Skull, Creeper Head etc.): 8x8x8 Voxel-Würfel
+    if (blockTypeUpper.includes('HEAD') || blockTypeUpper.includes('SKULL')) {
+      return (
+        <mesh
+          position={[0, -0.25, 0]}
+          material={material}
+          castShadow
+          receiveShadow
+        >
+          <boxGeometry args={[0.5, 0.5, 0.5]} />
+        </mesh>
+      );
+    }
+
+    // 5. Endstäbe (End Rod): 3D-Sockel mit leuchtendem Stab
+    if (blockTypeUpper === 'END_ROD') {
+      return (
+        <group>
+          {/* Sockelplatte */}
+          <mesh position={[0, -0.46875, 0]} material={material}>
+            <boxGeometry args={[0.25, 0.0625, 0.25]} />
+          </mesh>
+          {/* Leuchtender Stab */}
+          <mesh position={[0, 0.03125, 0]} material={material}>
+            <boxGeometry args={[0.125, 0.9375, 0.125]} />
+          </mesh>
+        </group>
+      );
+    }
+
+    // 6. Laternen (Lantern & Soul Lantern): 3D-Körper mit Kappenring
+    if (blockTypeUpper.includes('LANTERN')) {
+      return (
+        <group position={[0, -0.2, 0]}>
+          {/* Laternenkörper */}
+          <mesh material={material} castShadow>
+            <boxGeometry args={[0.375, 0.4375, 0.375]} />
+          </mesh>
+          {/* Kappe / Kettenöse */}
+          <mesh position={[0, 0.25, 0]} material={material}>
+            <boxGeometry args={[0.1875, 0.125, 0.1875]} />
+          </mesh>
+        </group>
+      );
+    }
+
+    // 7. Fackeln (Torch, Soul Torch, Redstone Torch)
+    if (blockTypeUpper.includes('TORCH')) {
+      const isWallTorch = blockTypeUpper.includes('WALL');
+      let torchPos: [number, number, number] = [0, -0.1875, 0];
+      let torchRot: [number, number, number] = [0, 0, 0];
+      if (isWallTorch) {
+        if (blockState.facing === 'north') {
+          torchPos = [0, 0, 0.35];
+          torchRot = [-0.35, 0, 0];
+        } else if (blockState.facing === 'south') {
+          torchPos = [0, 0, -0.35];
+          torchRot = [0.35, 0, 0];
+        } else if (blockState.facing === 'west') {
+          torchPos = [0.35, 0, 0];
+          torchRot = [0, 0, 0.35];
+        } else if (blockState.facing === 'east') {
+          torchPos = [-0.35, 0, 0];
+          torchRot = [0, 0, -0.35];
+        }
+      }
+      return (
+        <mesh position={torchPos} rotation={torchRot} material={material}>
+          <boxGeometry args={[0.125, 0.625, 0.125]} />
+        </mesh>
+      );
+    }
+
+    // 8. Ketten (Chain / Iron Chain): 3D vertikale Kette
+    if (blockTypeUpper.includes('CHAIN')) {
+      return (
+        <mesh material={material}>
+          <boxGeometry args={[0.1875, 1, 0.1875]} />
+        </mesh>
+      );
+    }
+
+    // 9. Blumentopf (Flower Pot)
+    if (blockTypeUpper === 'FLOWER_POT') {
+      return (
+        <mesh position={[0, -0.3125, 0]} material={material}>
+          <boxGeometry args={[0.375, 0.375, 0.375]} />
+        </mesh>
+      );
+    }
+
+    // 10. Tageslichtsensor (Daylight Detector)
+    if (blockTypeUpper.includes('DAYLIGHT')) {
+      return (
+        <mesh
+          position={[0, -0.3125, 0]}
+          material={material}
+          castShadow
+          receiveShadow
+        >
+          <boxGeometry args={[1, 0.375, 1]} />
+        </mesh>
+      );
+    }
+
+    // 11. Redstone-Verstärker & Komparator
+    if (
+      blockTypeUpper.includes('REPEATER') ||
+      blockTypeUpper.includes('COMPARATOR')
+    ) {
+      return (
+        <group position={[0, -0.4375, 0]}>
+          <mesh material={material} castShadow receiveShadow>
+            <boxGeometry args={[1, 0.125, 1]} />
+          </mesh>
+        </group>
+      );
+    }
+
+    // 12. Knöpfe (Button): 3D-Knopf
+    if (blockTypeUpper.endsWith('_BUTTON') || blockTypeUpper === 'BUTTON') {
+      return (
+        <mesh position={[0, -0.4375, 0]} material={material}>
+          <boxGeometry args={[0.25, 0.125, 0.375]} />
+        </mesh>
+      );
+    }
+
+    // 13. Truhen (Chest, Ender Chest, Trapped Chest)
+    if (blockTypeUpper.includes('CHEST')) {
+      return (
+        <mesh
+          position={[0, -0.0625, 0]}
+          material={material}
+          castShadow
+          receiveShadow
+        >
+          <boxGeometry args={[0.875, 0.875, 0.875]} />
+        </mesh>
+      );
+    }
+
+    // 14. Slabs (_slab): 1 x 0.5 x 1 mit proportionaler UV-Texturierung
     if (blockTypeUpper.endsWith('_SLAB') || blockTypeUpper === 'SLAB') {
       if (blockState.slabType === 'double') {
         return (
@@ -325,7 +570,7 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       );
     }
 
-    // 2. Stairs (_stairs): Basis-Slab (1 x 0.5 x 1) + halbe Stufe (1 x 0.5 x 0.5), rotiert nach facing und half
+    // 15. Stairs (_stairs): Basis-Slab (1 x 0.5 x 1) + halbe Stufe (1 x 0.5 x 0.5), rotiert nach facing und half
     if (blockTypeUpper.endsWith('_STAIRS') || blockTypeUpper === 'STAIRS') {
       const isUpright = blockState.half === 'bottom';
       const baseY = isUpright ? -0.25 : 0.25;
@@ -375,7 +620,7 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       );
     }
 
-    // 3. Fences (_fence): Mittelpfosten (0.25 x 1 x 0.25) PLUS Verbindungsstreben mit unverzerrter UV
+    // 16. Fences (_fence): Mittelpfosten (0.25 x 1 x 0.25) PLUS Verbindungsstreben mit unverzerrter UV
     if (blockTypeUpper.endsWith('_FENCE') || blockTypeUpper === 'FENCE') {
       return (
         <group>
@@ -462,7 +707,7 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       );
     }
 
-    // 4. Walls (_wall): Mittelpfosten (0.3125 x 1 x 0.3125) PLUS Verbindungsstege mit nativer UV
+    // 17. Walls (_wall): Mittelpfosten (0.3125 x 1 x 0.3125) PLUS Verbindungsstege mit nativer UV
     if (blockTypeUpper.endsWith('_WALL') || blockTypeUpper === 'WALL') {
       return (
         <group>
@@ -508,7 +753,7 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       );
     }
 
-    // 5. Iron Bars & Glass Panes (iron_bars, _bars, _pane)
+    // 18. Iron Bars & Glass Panes (iron_bars, _bars, _pane)
     if (
       blockTypeUpper === 'IRON_BARS' ||
       blockTypeUpper.endsWith('_BARS') ||
@@ -584,7 +829,7 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       );
     }
 
-    // 6. Ladders & Vines: Flache Box (1 x 1 x 0.0625), je nach facing an der Kante
+    // 19. Ladders & Vines: Flache Box (1 x 1 x 0.0625), je nach facing an der Kante
     if (blockTypeUpper === 'LADDER' || blockTypeUpper === 'VINE') {
       let ladderPos: [number, number, number] = [0, 0, 0.46875];
       let ladderSize: [number, number, number] = [1, 1, 0.0625];
@@ -610,7 +855,7 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       );
     }
 
-    // 7. Trapdoors (_trapdoor): 1 x 0.1875 x 1 (closed) bzw. hochgeklappt 1 x 1 x 0.1875 (open)
+    // 20. Trapdoors (_trapdoor): 1 x 0.1875 x 1 (closed) bzw. hochgeklappt 1 x 1 x 0.1875 (open)
     if (blockTypeUpper.endsWith('_TRAPDOOR') || blockTypeUpper === 'TRAPDOOR') {
       if (!blockState.isOpen) {
         // Horizontale geschlossene Falltür
@@ -655,7 +900,7 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       );
     }
 
-    // 8. Carpets & Pressure Plates: Flache 1 x 0.0625 x 1 Box am Boden
+    // 21. Carpets & Pressure Plates: Flache 1 x 0.0625 x 1 Box am Boden
     if (
       blockTypeUpper.endsWith('_CARPET') ||
       blockTypeUpper === 'CARPET' ||
@@ -677,7 +922,7 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       );
     }
 
-    // 9. Cobwebs: Diagonal gekreuzte Ebenen (X-Form)
+    // 22. Cobwebs: Diagonal gekreuzte Ebenen (X-Form)
     if (blockTypeUpper === 'COBWEB' || blockTypeUpper === 'WEB') {
       return (
         <group>
@@ -691,7 +936,7 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       );
     }
 
-    // 10. Standard Full 1 x 1 x 1 Block
+    // 23. Standard Full 1 x 1 x 1 Block
     return (
       <mesh material={material} castShadow receiveShadow>
         <boxGeometry args={[1, 1, 1]} />
