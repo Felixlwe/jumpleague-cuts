@@ -87,10 +87,20 @@ export const ModuleDetailClient: React.FC<ModuleDetailClientProps> = ({
 
   const matchedModule = useMemo(() => {
     if (!rawModuleId) return null;
+    const target = rawModuleId.trim().toLowerCase();
+    const cleanTarget = target.replace(/^#+/, '');
     return (
-      modules.find(
-        (m) => m.id.toLowerCase() === rawModuleId.trim().toLowerCase()
-      ) ?? null
+      modules.find((m) => {
+        const mId = m.id.toLowerCase();
+        const mClean = mId.replace(/^#+/, '');
+        const mShort = (m.shortCode || '').toLowerCase().replace(/^#+/, '');
+        return (
+          mId === target ||
+          mClean === cleanTarget ||
+          mShort === cleanTarget ||
+          mId === `#${cleanTarget}`
+        );
+      }) ?? null
     );
   }, [modules, rawModuleId]);
 

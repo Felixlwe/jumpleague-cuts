@@ -607,10 +607,12 @@ export default function ModuleHubPage() {
               // Clean display name (strip leading 'E1 - ' if present)
               const cleanName = mod.name.replace(/^[A-Z0-9]+\s*-\s*/i, '');
 
+              const cleanHrefId = mod.id.replace(/^#+/, '');
+
               return (
                 <Link
                   key={mod.id}
-                  href={`/modules/${mod.id}`}
+                  href={`/modules/${encodeURIComponent(cleanHrefId)}`}
                   onClick={() => selectModule(mod.id)}
                   className={`group relative flex flex-col justify-between overflow-hidden rounded-xl border p-3.5 text-left backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 ${
                     isSelected

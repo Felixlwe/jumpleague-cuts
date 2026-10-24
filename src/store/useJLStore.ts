@@ -272,9 +272,18 @@ export const useJLStore = create<JLStoreState>()(
       selectModule: (moduleId) => {
         const state = get();
         const normalizedTarget = moduleId.trim().toLowerCase();
-        const matchedModule = state.modules.find(
-          (m) => m.id.toLowerCase() === normalizedTarget
-        );
+        const cleanTarget = normalizedTarget.replace(/^#+/, '');
+        const matchedModule = state.modules.find((m) => {
+          const mId = m.id.toLowerCase();
+          const mClean = mId.replace(/^#+/, '');
+          const mShort = (m.shortCode || '').toLowerCase().replace(/^#+/, '');
+          return (
+            mId === normalizedTarget ||
+            mClean === cleanTarget ||
+            mShort === cleanTarget ||
+            mId === `#${cleanTarget}`
+          );
+        });
         const resolvedId = matchedModule ? matchedModule.id : moduleId;
 
         set({

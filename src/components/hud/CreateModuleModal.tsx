@@ -251,21 +251,24 @@ export const CreateModuleModal: React.FC<CreateModuleModalProps> = ({
           throw new Error(data.error || `HTTP ${response.status}`);
         }
 
+        const cleanId = String(targetId).trim().replace(/^#+/, '');
+        const finalId = cleanId;
+        const shortCode = `#${cleanId}`;
+
         const parsed = await parseBase64Schematic(
           data.base64,
-          `Modul ${targetId}`,
+          `Modul ${cleanId}`,
           {
             difficulty,
-            shortCode: `#${targetId}`,
-            name: `Modul ${targetId}`,
+            shortCode,
+            name: `Modul ${cleanId}`,
           }
         );
 
-        const finalId = `#${targetId}`;
         const newModule: JLModule = {
           id: finalId,
-          shortCode: finalId,
-          name: parsed.name || `Modul ${targetId}`,
+          shortCode,
+          name: parsed.name || `Modul ${cleanId}`,
           difficulty,
           dimensions: parsed.dimensions,
           blockCount: parsed.blocks.length,
