@@ -289,8 +289,8 @@ export default function ModuleHubPage() {
         className="hidden"
       />
 
-      {/* Main Content Container */}
-      <div className="relative z-10 mx-auto flex min-h-screen max-w-7xl flex-col px-4 pt-8 pb-24 sm:px-6 lg:px-8">
+      {/* Main Content Container (pt-28 ensures clear vertical clearance below floating admin buttons) */}
+      <div className="relative z-10 mx-auto flex min-h-screen max-w-7xl flex-col px-4 pt-28 pb-24 sm:px-6 lg:px-8">
         {/* Top Hero & Branding Header */}
         <header className="mb-8 flex flex-col justify-between gap-6 rounded-3xl border border-white/10 bg-zinc-950/75 p-6 shadow-2xl backdrop-blur-xl lg:flex-row lg:items-center">
           <div className="flex items-start gap-4 sm:items-center">
