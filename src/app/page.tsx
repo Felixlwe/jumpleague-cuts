@@ -221,6 +221,65 @@ export default function ModuleHubPage() {
         className="pointer-events-none fixed -bottom-40 right-1/4 h-96 w-96 rounded-full bg-cyan-500/10 blur-[130px]"
       />
 
+      {/* Floating Admin Controls in the top-right corner on the checkered background */}
+      <div className="absolute top-4 right-4 z-50 flex flex-col items-end gap-2">
+        {isAdminAuthenticated ? (
+          <>
+            {/* 1. Ausloggen-Button ganz oben rechts */}
+            <button
+              type="button"
+              onClick={() => setAdminAuthenticated(false)}
+              title="Admin abmelden"
+              className="group flex items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-950/80 px-3 py-1.5 font-mono text-xs font-semibold text-zinc-400 shadow-xl backdrop-blur-md transition hover:border-rose-500/50 hover:bg-rose-500/15 hover:text-rose-300"
+            >
+              <LogOut className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+              <span>Ausloggen</span>
+            </button>
+
+            {/* 2. 'Admin-Modus an' / 'ADMIN-MODUS AKTIV' Button direkt darunter */}
+            <button
+              type="button"
+              onClick={toggleAdminMode}
+              title={
+                isAdminMode
+                  ? 'Admin-Modus deaktivieren'
+                  : 'Admin-Modus aktivieren'
+              }
+              className={`flex items-center gap-2 rounded-xl border px-3.5 py-1.5 text-xs font-bold shadow-xl backdrop-blur-md transition ${
+                isAdminMode
+                  ? 'border-purple-400/80 bg-purple-600/30 text-purple-200 shadow-[0_0_20px_rgba(168,85,247,0.35)] ring-1 ring-purple-400/60'
+                  : 'border-white/10 bg-zinc-950/80 text-zinc-400 hover:border-purple-400/40 hover:bg-purple-500/10 hover:text-purple-300'
+              }`}
+            >
+              {isAdminMode ? (
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-purple-400 opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-purple-400" />
+                  </span>
+                  <ShieldCheck className="h-3.5 w-3.5 text-purple-300" />
+                  <span className="tracking-wide">ADMIN-MODUS AKTIV</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="h-3.5 w-3.5 text-zinc-500" />
+                  <span>Admin-Modus an</span>
+                </>
+              )}
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAdminAuthModalOpen(true)}
+            className="flex items-center gap-2 rounded-xl border border-white/10 bg-zinc-950/80 px-3.5 py-1.5 text-xs font-semibold text-zinc-400 shadow-xl backdrop-blur-md transition hover:border-purple-500/40 hover:bg-purple-500/10 hover:text-purple-300"
+          >
+            <Lock className="h-3.5 w-3.5 text-zinc-500" />
+            <span>Admin Login</span>
+          </button>
+        )}
+      </div>
+
       {/* Hidden File Input for .schem replacement */}
       <input
         ref={replaceFileInputRef}
@@ -258,7 +317,7 @@ export default function ModuleHubPage() {
             </div>
           </div>
 
-          {/* Global Stats Pills & Admin Mode Toggle */}
+          {/* Global Stats Pills */}
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2.5 rounded-2xl border border-white/10 bg-zinc-900/70 px-4 py-2.5">
               <Layers className="h-4 w-4 text-cyan-400" />
@@ -283,60 +342,6 @@ export default function ModuleHubPage() {
                 </div>
               </div>
             </div>
-
-            {/* Admin Controls */}
-            {isAdminAuthenticated ? (
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={toggleAdminMode}
-                  title={
-                    isAdminMode
-                      ? 'Admin-Modus deaktivieren'
-                      : 'Admin-Modus aktivieren'
-                  }
-                  className={`flex items-center gap-2 rounded-2xl border px-4 py-2.5 text-xs font-bold transition shadow-lg ${
-                    isAdminMode
-                      ? 'border-purple-400/80 bg-purple-600/30 text-purple-200 shadow-[0_0_20px_rgba(168,85,247,0.4)] ring-1 ring-purple-400/60'
-                      : 'border-white/10 bg-zinc-900/70 text-zinc-400 hover:text-white hover:border-purple-400/40'
-                  }`}
-                >
-                  {isAdminMode ? (
-                    <>
-                      <span className="relative flex h-2 w-2">
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-purple-400 opacity-75" />
-                        <span className="relative inline-flex h-2 w-2 rounded-full bg-purple-400" />
-                      </span>
-                      <ShieldCheck className="h-4 w-4 text-purple-300" />
-                      <span className="tracking-wide">ADMIN-MODUS AKTIV</span>
-                    </>
-                  ) : (
-                    <>
-                      <Lock className="h-4 w-4 text-zinc-500" />
-                      <span>Admin-Modus an</span>
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setAdminAuthenticated(false)}
-                  title="Admin abmelden"
-                  className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-zinc-900/70 text-zinc-400 hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-400 transition"
-                >
-                  <LogOut className="h-4 w-4" />
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setAdminAuthModalOpen(true)}
-                className="flex items-center gap-2 rounded-2xl border border-white/10 bg-zinc-900/70 px-4 py-2.5 text-xs font-semibold text-zinc-400 hover:border-purple-500/40 hover:bg-purple-500/10 hover:text-purple-300 transition"
-              >
-                <Lock className="h-4 w-4 text-zinc-500" />
-                <span>Admin Login</span>
-              </button>
-            )}
           </div>
         </header>
 
