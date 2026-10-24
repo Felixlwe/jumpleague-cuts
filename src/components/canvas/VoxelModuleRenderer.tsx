@@ -24,6 +24,16 @@ interface BlockStateParsed {
   half: 'bottom' | 'top';
   slabType: 'bottom' | 'top' | 'double';
   isOpen: boolean;
+  rotation: number;
+  axis: 'x' | 'y' | 'z';
+  face: 'floor' | 'ceiling' | 'wall';
+  vine: {
+    north: boolean;
+    south: boolean;
+    east: boolean;
+    west: boolean;
+    up: boolean;
+  };
 }
 
 function parseBlockState(
@@ -32,17 +42,21 @@ function parseBlockState(
 ): BlockStateParsed {
   const { x, y, z } = block.position;
 
-  // Auto-detect facing if not explicitly specified (e.g. for ladders/vines)
+  // Auto-detect facing if not explicitly specified (e.g. for ladders)
   let detectedFacing: 'north' | 'south' | 'east' | 'west' = 'north';
   if (blockMap.has(`${x},${y},${z + 1}`)) detectedFacing = 'north';
   else if (blockMap.has(`${x},${y},${z - 1}`)) detectedFacing = 'south';
   else if (blockMap.has(`${x + 1},${y},${z}`)) detectedFacing = 'west';
   else if (blockMap.has(`${x - 1},${y},${z}`)) detectedFacing = 'east';
 
+  const rawProps: Record<string, any> = {
+    ...(block.properties || {}),
+    ...(block.state || {}),
+  };
+
   const rawFacing = (
     block.facing ||
-    block.state?.facing ||
-    block.properties?.facing ||
+    rawProps.facing ||
     detectedFacing
   )
     .toString()
@@ -56,8 +70,7 @@ function parseBlockState(
 
   const rawHalf = (
     block.half ||
-    block.state?.half ||
-    block.properties?.half ||
+    rawProps.half ||
     'bottom'
   )
     .toString()
@@ -67,8 +80,7 @@ function parseBlockState(
 
   const rawSlabType = (
     block.slabType ||
-    block.state?.type ||
-    block.properties?.type ||
+    rawProps.type ||
     (half === 'top' ? 'top' : 'bottom')
   )
     .toString()
@@ -80,12 +92,60 @@ function parseBlockState(
 
   const isOpen = Boolean(
     block.open ??
-      (block.state?.open === true || block.state?.open === 'true') ??
-      (block.properties?.open === true || block.properties?.open === 'true') ??
+      (rawProps.open === true || rawProps.open === 'true') ??
       false
   );
 
-  return { facing, half, slabType, isOpen };
+  const rotation = Number(rawProps.rotation ?? 0) || 0;
+  const rawAxis = String(rawProps.axis || 'y').toLowerCase();
+  const axis = (['x', 'y', 'z'].includes(rawAxis) ? rawAxis : 'y') as
+    | 'x'
+    | 'y'
+    | 'z';
+  const rawFace = String(rawProps.face || 'wall').toLowerCase();
+  const face = (['floor', 'ceiling', 'wall'].includes(rawFace)
+    ? rawFace
+    : 'wall') as 'floor' | 'ceiling' | 'wall';
+
+  const isValTrue = (key: string): boolean => {
+    const v = rawProps[key];
+    return v === true || v === 'true' || v === 1 || v === '1';
+  };
+
+  let vineNorth = isValTrue('north');
+  let vineSouth = isValTrue('south');
+  let vineEast = isValTrue('east');
+  let vineWest = isValTrue('west');
+  let vineUp = isValTrue('up');
+
+  // Fallback to adjacent neighbor blocks if all boolean properties are false
+  if (!vineNorth && !vineSouth && !vineEast && !vineWest && !vineUp) {
+    if (blockMap.has(`${x},${y},${z - 1}`)) vineNorth = true;
+    else if (blockMap.has(`${x},${y},${z + 1}`)) vineSouth = true;
+    else if (blockMap.has(`${x + 1},${y},${z}`)) vineEast = true;
+    else if (blockMap.has(`${x - 1},${y},${z}`)) vineWest = true;
+    else if (blockMap.has(`${x},${y + 1},${z}`)) vineUp = true;
+    else {
+      vineNorth = true;
+    }
+  }
+
+  return {
+    facing,
+    half,
+    slabType,
+    isOpen,
+    rotation,
+    axis,
+    face,
+    vine: {
+      north: vineNorth,
+      south: vineSouth,
+      east: vineEast,
+      west: vineWest,
+      up: vineUp,
+    },
+  };
 }
 
 interface NeighborConnections {
@@ -385,23 +445,60 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       );
     }
 
-    // 1. Hebel (Lever): Echtes 3D-Modell mit Cobblestone-Sockel und angewinkeltem Holzhebel
+    // 1. Hebel (Lever): Echtes 3D-Modell mit Cobblestone-Sockel und Holzhebel nach Ausrichtung
     if (blockTypeUpper === 'LEVER') {
       const cobbleMat = getMinecraftBlockMaterial('cobblestone');
+      let basePos: [number, number, number] = [0, -0.40625, 0];
+      let baseArgs: [number, number, number] = [0.3125, 0.1875, 0.4375];
+      let leverPos: [number, number, number] = [0, -0.22, 0];
+      let leverRot: [number, number, number] = [0.55, 0, 0];
+
+      if (blockState.face === 'ceiling') {
+        basePos = [0, 0.40625, 0];
+        baseArgs = [0.3125, 0.1875, 0.4375];
+        leverPos = [0, 0.22, 0];
+        leverRot = [-0.55, 0, 0];
+      } else if (
+        blockState.face === 'wall' ||
+        ['north', 'south', 'east', 'west'].includes(blockState.facing)
+      ) {
+        if (blockState.facing === 'north') {
+          basePos = [0, 0, 0.40625];
+          baseArgs = [0.3125, 0.4375, 0.1875];
+          leverPos = [0, 0.12, 0.22];
+          leverRot = [-0.55, 0, 0];
+        } else if (blockState.facing === 'south') {
+          basePos = [0, 0, -0.40625];
+          baseArgs = [0.3125, 0.4375, 0.1875];
+          leverPos = [0, 0.12, -0.22];
+          leverRot = [0.55, 0, 0];
+        } else if (blockState.facing === 'west') {
+          basePos = [0.40625, 0, 0];
+          baseArgs = [0.1875, 0.4375, 0.3125];
+          leverPos = [0.22, 0.12, 0];
+          leverRot = [0, 0, 0.55];
+        } else if (blockState.facing === 'east') {
+          basePos = [-0.40625, 0, 0];
+          baseArgs = [0.1875, 0.4375, 0.3125];
+          leverPos = [-0.22, 0.12, 0];
+          leverRot = [0, 0, -0.55];
+        }
+      }
+
       return (
         <group>
           {/* Cobblestone Grundplatte */}
           <mesh
-            position={[0, -0.40625, 0]}
-            geometry={getVoxelBoxGeometry(0.3125, 0.1875, 0.4375)}
+            position={basePos}
+            geometry={getVoxelBoxGeometry(baseArgs[0], baseArgs[1], baseArgs[2])}
             material={cobbleMat}
             castShadow
             receiveShadow
           />
           {/* 3D Hebelgriff mit Alpha-Textur */}
           <mesh
-            position={[0, -0.22, 0]}
-            rotation={[0.55, 0, 0]}
+            position={leverPos}
+            rotation={leverRot}
             geometry={getVoxelBoxGeometry(0.0625, 0.45, 0.0625)}
             material={material}
             castShadow
@@ -467,22 +564,60 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
 
     // 4. Köpfe & Schädel (Player Head, Skeleton Skull, Creeper Head etc.): 8x8x8 Voxel-Würfel
     if (blockTypeUpper.includes('HEAD') || blockTypeUpper.includes('SKULL')) {
+      const isWallHead =
+        blockTypeUpper.includes('WALL') ||
+        blockState.facing === 'north' ||
+        blockState.facing === 'south' ||
+        blockState.facing === 'east' ||
+        blockState.facing === 'west';
+
+      if (isWallHead && blockTypeUpper.includes('WALL')) {
+        let headPos: [number, number, number] = [0, -0.15, 0.25];
+        if (blockState.facing === 'north') headPos = [0, -0.15, 0.25];
+        else if (blockState.facing === 'south') headPos = [0, -0.15, -0.25];
+        else if (blockState.facing === 'west') headPos = [0.25, -0.15, 0];
+        else if (blockState.facing === 'east') headPos = [-0.25, -0.15, 0];
+
+        return (
+          <mesh
+            position={headPos}
+            material={material}
+            castShadow
+            receiveShadow
+          >
+            <boxGeometry args={[0.5, 0.5, 0.5]} />
+          </mesh>
+        );
+      }
+
+      const rotAngle =
+        -(Number(blockState.rotation || 0) * 22.5) * (Math.PI / 180);
+
       return (
-        <mesh
-          position={[0, -0.25, 0]}
-          material={material}
-          castShadow
-          receiveShadow
-        >
-          <boxGeometry args={[0.5, 0.5, 0.5]} />
-        </mesh>
+        <group rotation={[0, rotAngle, 0]}>
+          <mesh
+            position={[0, -0.25, 0]}
+            material={material}
+            castShadow
+            receiveShadow
+          >
+            <boxGeometry args={[0.5, 0.5, 0.5]} />
+          </mesh>
+        </group>
       );
     }
 
-    // 5. Endstäbe (End Rod): 3D-Sockel mit leuchtendem Stab
+    // 5. Endstäbe (End Rod): 3D-Sockel mit leuchtendem Stab in beliebiger Ausrichtung
     if (blockTypeUpper === 'END_ROD') {
+      let rodRot: [number, number, number] = [0, 0, 0];
+      if (blockState.facing === 'down') rodRot = [Math.PI, 0, 0];
+      else if (blockState.facing === 'north') rodRot = [-Math.PI / 2, 0, 0];
+      else if (blockState.facing === 'south') rodRot = [Math.PI / 2, 0, 0];
+      else if (blockState.facing === 'west') rodRot = [0, 0, Math.PI / 2];
+      else if (blockState.facing === 'east') rodRot = [0, 0, -Math.PI / 2];
+
       return (
-        <group>
+        <group rotation={rodRot}>
           {/* Sockelplatte */}
           <mesh position={[0, -0.46875, 0]} material={material}>
             <boxGeometry args={[0.25, 0.0625, 0.25]} />
@@ -538,11 +673,15 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       );
     }
 
-    // 8. Ketten (Chain / Iron Chain): 3D vertikale Kette
+    // 8. Ketten (Chain / Iron Chain): 3D Kette mit Achsenausrichtung (x, y, z)
     if (blockTypeUpper.includes('CHAIN')) {
+      let chainSize: [number, number, number] = [0.1875, 1, 0.1875];
+      if (blockState.axis === 'x') chainSize = [1, 0.1875, 0.1875];
+      else if (blockState.axis === 'z') chainSize = [0.1875, 0.1875, 1];
+
       return (
         <mesh material={material}>
-          <boxGeometry args={[0.1875, 1, 0.1875]} />
+          <boxGeometry args={chainSize} />
         </mesh>
       );
     }
@@ -584,11 +723,36 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       );
     }
 
-    // 12. Knöpfe (Button): 3D-Knopf
+    // 12. Knöpfe (Button): 3D-Knopf an Wand, Decke oder Boden
     if (blockTypeUpper.endsWith('_BUTTON') || blockTypeUpper === 'BUTTON') {
+      let btnPos: [number, number, number] = [0, -0.425, 0];
+      let btnArgs: [number, number, number] = [0.3, 0.15, 0.25];
+
+      if (blockState.face === 'ceiling') {
+        btnPos = [0, 0.425, 0];
+        btnArgs = [0.3, 0.15, 0.25];
+      } else if (
+        blockState.face === 'wall' ||
+        ['north', 'south', 'east', 'west'].includes(blockState.facing)
+      ) {
+        if (blockState.facing === 'north') {
+          btnPos = [0, 0, 0.425];
+          btnArgs = [0.3, 0.25, 0.15];
+        } else if (blockState.facing === 'south') {
+          btnPos = [0, 0, -0.425];
+          btnArgs = [0.3, 0.25, 0.15];
+        } else if (blockState.facing === 'west') {
+          btnPos = [0.425, 0, 0];
+          btnArgs = [0.15, 0.25, 0.3];
+        } else if (blockState.facing === 'east') {
+          btnPos = [-0.425, 0, 0];
+          btnArgs = [0.15, 0.25, 0.3];
+        }
+      }
+
       return (
-        <mesh position={[0, -0.4375, 0]} material={material}>
-          <boxGeometry args={[0.25, 0.125, 0.375]} />
+        <mesh position={btnPos} material={material} castShadow>
+          <boxGeometry args={btnArgs} />
         </mesh>
       );
     }
@@ -655,26 +819,49 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
 
     // 13c. Schilder & Hängeschilder (_sign)
     if (blockTypeUpper.includes('SIGN')) {
-      const isWallSign = blockTypeUpper.includes('WALL');
+      const isWallSign =
+        blockTypeUpper.includes('WALL') ||
+        blockTypeUpper.includes('WALL_SIGN') ||
+        blockTypeUpper.includes('WALL_HANGING_SIGN');
+
       if (isWallSign) {
-        let signPos: [number, number, number] = [0, 0, 0.4375];
-        if (blockState.facing === 'north') signPos = [0, 0, 0.4375];
-        else if (blockState.facing === 'south') signPos = [0, 0, -0.4375];
-        else if (blockState.facing === 'west') signPos = [0.4375, 0, 0];
-        else if (blockState.facing === 'east') signPos = [-0.4375, 0, 0];
+        let signPos: [number, number, number] = [0, 0.05, 0.46];
+        let signArgs: [number, number, number] = [0.875, 0.5, 0.04];
+
+        if (blockState.facing === 'north') {
+          signPos = [0, 0.05, 0.46];
+          signArgs = [0.875, 0.5, 0.04];
+        } else if (blockState.facing === 'south') {
+          signPos = [0, 0.05, -0.46];
+          signArgs = [0.875, 0.5, 0.04];
+        } else if (blockState.facing === 'west') {
+          signPos = [0.46, 0.05, 0];
+          signArgs = [0.04, 0.5, 0.875];
+        } else if (blockState.facing === 'east') {
+          signPos = [-0.46, 0.05, 0];
+          signArgs = [0.04, 0.5, 0.875];
+        }
+
         return (
           <mesh position={signPos} material={material} castShadow>
-            <boxGeometry args={[0.875, 0.5, 0.0625]} />
+            <boxGeometry args={signArgs} />
           </mesh>
         );
       }
+
+      // Stehende Schilder (_sign): Pfahl ([0.1, 0.55, 0.1] bei y = -0.22) und Schild ([1.0, 0.5, 0.08] bei y = +0.15)
+      const rotAngle =
+        -(Number(blockState.rotation || 0) * 22.5) * (Math.PI / 180);
+
       return (
-        <group>
-          <mesh position={[0, -0.1875, 0]} material={material}>
-            <boxGeometry args={[0.125, 0.625, 0.125]} />
+        <group rotation={[0, rotAngle, 0]}>
+          {/* Pfahl */}
+          <mesh position={[0, -0.22, 0]} material={material}>
+            <boxGeometry args={[0.1, 0.55, 0.1]} />
           </mesh>
-          <mesh position={[0, 0.25, 0]} material={material} castShadow>
-            <boxGeometry args={[0.875, 0.5, 0.0625]} />
+          {/* Schildplatte */}
+          <mesh position={[0, 0.15, 0]} material={material} castShadow>
+            <boxGeometry args={[1.0, 0.5, 0.08]} />
           </mesh>
         </group>
       );
@@ -1100,23 +1287,62 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       );
     }
 
-    // 19. Ladders & Vines: Flache Box (1 x 1 x 0.0625), je nach facing an der Kante
-    if (blockTypeUpper === 'LADDER' || blockTypeUpper === 'VINE') {
-      let ladderPos: [number, number, number] = [0, 0, 0.46875];
-      let ladderSize: [number, number, number] = [1, 1, 0.0625];
+    // 19a. Ranken & Flechten (Vine, Glow Lichen, Sculk Vein): Flache Platten an den anliegenden Wänden/Decken (Dicke 0.04)
+    const isVineOrLichen =
+      blockTypeUpper === 'VINE' ||
+      blockTypeUpper === 'GLOW_LICHEN' ||
+      blockTypeUpper === 'SCULK_VEIN';
+
+    if (isVineOrLichen) {
+      const { north, south, east, west, up } = blockState.vine;
+      return (
+        <group>
+          {north && (
+            <mesh position={[0, 0, -0.48]} material={material}>
+              <boxGeometry args={[1, 1, 0.04]} />
+            </mesh>
+          )}
+          {south && (
+            <mesh position={[0, 0, 0.48]} material={material}>
+              <boxGeometry args={[1, 1, 0.04]} />
+            </mesh>
+          )}
+          {west && (
+            <mesh position={[-0.48, 0, 0]} material={material}>
+              <boxGeometry args={[0.04, 1, 1]} />
+            </mesh>
+          )}
+          {east && (
+            <mesh position={[0.48, 0, 0]} material={material}>
+              <boxGeometry args={[0.04, 1, 1]} />
+            </mesh>
+          )}
+          {up && (
+            <mesh position={[0, 0.48, 0]} material={material}>
+              <boxGeometry args={[1, 0.04, 1]} />
+            </mesh>
+          )}
+        </group>
+      );
+    }
+
+    // 19b. Leitern (Ladder): Volle Höhe 1.0, Dicke 0.04, haftet an entsprechender Wand
+    if (blockTypeUpper === 'LADDER') {
+      let ladderPos: [number, number, number] = [0, 0, 0.46];
+      let ladderSize: [number, number, number] = [1, 1, 0.04];
 
       if (blockState.facing === 'north') {
-        ladderPos = [0, 0, 0.46875];
-        ladderSize = [1, 1, 0.0625];
+        ladderPos = [0, 0, 0.46];
+        ladderSize = [1, 1, 0.04];
       } else if (blockState.facing === 'south') {
-        ladderPos = [0, 0, -0.46875];
-        ladderSize = [1, 1, 0.0625];
+        ladderPos = [0, 0, -0.46];
+        ladderSize = [1, 1, 0.04];
       } else if (blockState.facing === 'west') {
-        ladderPos = [0.46875, 0, 0];
-        ladderSize = [0.0625, 1, 1];
+        ladderPos = [0.46, 0, 0];
+        ladderSize = [0.04, 1, 1];
       } else if (blockState.facing === 'east') {
-        ladderPos = [-0.46875, 0, 0];
-        ladderSize = [0.0625, 1, 1];
+        ladderPos = [-0.46, 0, 0];
+        ladderSize = [0.04, 1, 1];
       }
 
       return (

@@ -64,6 +64,7 @@ export function parseBlockStateString(raw: string): {
     cleanName === 'air' ||
     cleanName === 'cave_air' ||
     cleanName === 'void_air' ||
+    cleanName === 'structure_void' ||
     cleanName === '';
 
   // Extract explicit properties
@@ -252,23 +253,24 @@ export class NBTReader {
 }
 
 /**
- * Decodes a Minecraft VarInt from a byte array
+ * Decodes a Minecraft VarInt from a byte array (handling unsigned bytes with b & 0xff)
  */
-function decodeVarInt(data: Uint8Array, offset: { val: number }): number {
-  let result = 0;
-  let shift = 0;
-  while (offset.val < data.length) {
-    const byte = data[offset.val++];
-    result |= (byte & 0x7f) << shift;
-    if ((byte & 0x80) === 0) {
-      break;
-    }
+export function decodeVarInt(
+  blockData: Uint8Array,
+  offset: { val: number }
+): number {
+  let value = 0,
+    shift = 0;
+  while (offset.val < blockData.length) {
+    const b = blockData[offset.val++] & 0xff;
+    value |= (b & 0x7f) << shift;
+    if ((b & 0x80) === 0) break;
     shift += 7;
     if (shift >= 35) {
       throw new Error('VarInt too large in BlockData');
     }
   }
-  return result;
+  return value;
 }
 
 /**

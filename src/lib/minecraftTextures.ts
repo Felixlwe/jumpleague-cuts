@@ -178,8 +178,80 @@ function createSkullCanvas(skullType: string): HTMLCanvasElement {
   return canvas;
 }
 
+export const BLOCK_BASE_COLORS: Record<string, string> = {
+  stone: '#7f7f7f',
+  cobblestone: '#666666',
+  mossy_cobblestone: '#5a6b5a',
+  stone_bricks: '#7a7a7a',
+  mossy_stone_bricks: '#6c7a65',
+  dirt: '#866043',
+  grass: '#5b8731',
+  sand: '#d7c59a',
+  gravel: '#7a7674',
+  sandstone: '#d7c59a',
+  red_sandstone: '#b85c2c',
+  oak: '#a88054',
+  spruce: '#684e32',
+  birch: '#c4b67d',
+  jungle: '#a07354',
+  acacia: '#a85a32',
+  dark_oak: '#422a15',
+  mangrove: '#753630',
+  cherry: '#e09895',
+  bamboo: '#c29d46',
+  crimson: '#652d3c',
+  warped: '#2b6865',
+  planks: '#a88054',
+  wood: '#684e32',
+  log: '#684e32',
+  obsidian: '#14121e',
+  bedrock: '#333333',
+  brick: '#964d38',
+  nether_brick: '#2d1519',
+  deepslate: '#4a4a52',
+  blackstone: '#272228',
+  basalt: '#4f4b4f',
+  purpur: '#a97da9',
+  end_stone: '#dadca3',
+  prismarine: '#5b9c97',
+  quartz: '#eae5de',
+  iron: '#d8d8d8',
+  gold: '#f8d038',
+  diamond: '#5decf5',
+  emerald: '#17dd62',
+  copper: '#bf6b51',
+  amethyst: '#8354a7',
+  coal: '#111111',
+  lapis: '#1e438c',
+  redstone: '#b31500',
+  slime: '#72b655',
+  honey: '#eb9d1b',
+  ice: '#8cb5f5',
+  snow: '#f0f0f0',
+  wool: '#e9ecec',
+  glass: '#a0c4de',
+  leaves: '#3f671c',
+  vine: '#3f671c',
+  ladder: '#8d6832',
+  terracotta: '#985e43',
+};
+
+export function getBlockFallbackColor(name: string): string {
+  const clean = sanitizeTextureName(name);
+  for (const [key, col] of Object.entries(BLOCK_BASE_COLORS)) {
+    if (clean.includes(key)) return col;
+  }
+  let hash = 0;
+  for (let i = 0; i < clean.length; i++) {
+    hash = (hash << 5) - hash + clean.charCodeAt(i);
+    hash |= 0;
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 30%, 45%)`;
+}
+
 /**
- * Creates a 16x16 crisp placeholder canvas so Three.js has immediate valid texture data
+ * Creates a 16x16 crisp placeholder canvas with authentic block color so Three.js has immediate valid texture data
  */
 function createPlaceholderCanvas(name: string): HTMLCanvasElement {
   if (typeof document === 'undefined') {
@@ -190,17 +262,19 @@ function createPlaceholderCanvas(name: string): HTMLCanvasElement {
   canvas.height = 16;
   const ctx = canvas.getContext('2d');
   if (ctx) {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-      hash = (hash << 5) - hash + name.charCodeAt(i);
-      hash |= 0;
-    }
-    const hue = Math.abs(hash) % 360;
-    ctx.fillStyle = `hsl(${hue}, 20%, 35%)`;
+    const baseColor = getBlockFallbackColor(name);
+    ctx.fillStyle = baseColor;
     ctx.fillRect(0, 0, 16, 16);
-    ctx.fillStyle = `hsl(${hue}, 25%, 45%)`;
-    ctx.fillRect(0, 0, 8, 8);
-    ctx.fillRect(8, 8, 8, 8);
+    // Subtle pixel-art texture pattern so fallback looks authentic
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+    ctx.fillRect(0, 0, 16, 2);
+    ctx.fillRect(0, 14, 16, 2);
+    ctx.fillRect(0, 0, 2, 16);
+    ctx.fillRect(14, 0, 2, 16);
+    ctx.fillRect(4, 4, 8, 8);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.fillRect(2, 2, 6, 6);
+    ctx.fillRect(8, 8, 6, 6);
   }
   return canvas;
 }
@@ -369,6 +443,309 @@ export function getMinecraftTexture(textureName: string): THREE.Texture {
   }
 
   return texture;
+}
+
+/**
+ * Resolves a block name and face ('top', 'bottom', 'side') to the appropriate Minecraft texture PNG name.
+ * Handles stairs, slabs, fences, gates, pressure plates, buttons, signs, hanging signs, carpets, glass panes, etc.
+ */
+export function resolveBlockTextureName(
+  blockName: string,
+  face: string = 'side'
+): string {
+  let lower = sanitizeTextureName(blockName);
+
+  // Remove prefixes
+  lower = lower.replace(/^minecraft:/, '');
+  lower = lower.replace(/^waxed_/, '');
+  lower = lower.replace(/^infested_/, '');
+
+  // Air / void / barrier
+  if (
+    lower === 'air' ||
+    lower === 'cave_air' ||
+    lower === 'void_air' ||
+    lower === 'structure_void' ||
+    lower === 'light' ||
+    lower === 'barrier'
+  ) {
+    return 'barrier';
+  }
+
+  // 1. Glas-Panes (_glass_pane / _pane) -> Textur des entsprechenden Glases (_glass bzw. glass)
+  if (
+    lower.endsWith('_glass_pane') ||
+    lower === 'glass_pane' ||
+    lower.endsWith('_pane')
+  ) {
+    if (lower === 'glass_pane') return 'glass';
+    if (lower === 'iron_bars' || lower === 'bars') return 'iron_bars';
+    const base = lower.replace(/(_glass)?_pane$/, '');
+    if (base === 'iron') return 'iron_bars';
+    if (base === 'glass') return 'glass';
+    return base.endsWith('_glass') ? base : `${base}_glass`;
+  }
+
+  // 2. Teppiche (_carpet) -> Textur der entsprechenden Wolle (_wool)
+  if (lower.endsWith('_carpet') || lower === 'carpet') {
+    if (lower === 'moss_carpet') return 'moss_block';
+    if (lower === 'carpet') return 'white_wool';
+    const color = lower.replace(/_carpet$/, '');
+    return `${color}_wool`;
+  }
+
+  // 3. Signs & Hanging Signs (_sign, _wall_sign, _hanging_sign, _wall_hanging_sign)
+  if (lower.includes('sign')) {
+    const woodMatch = lower.match(/^([a-z_]+?)(_wall)?(_hanging)?_sign$/);
+    const wood = woodMatch ? woodMatch[1] : 'oak';
+    const WOOD_TYPES = [
+      'oak',
+      'spruce',
+      'birch',
+      'jungle',
+      'acacia',
+      'dark_oak',
+      'mangrove',
+      'cherry',
+      'bamboo',
+      'crimson',
+      'warped',
+    ];
+    if (WOOD_TYPES.includes(wood)) {
+      return `${wood}_planks`;
+    }
+    return `${wood}_planks`;
+  }
+
+  // 4. Trapdoors (_trapdoor): Holz- und Eisen-Trapdoors haben eigene Texturen (z.B. oak_trapdoor, iron_trapdoor)
+  if (lower.endsWith('_trapdoor') || lower === 'trapdoor') {
+    if (lower === 'trapdoor') return 'oak_trapdoor';
+    return lower;
+  }
+
+  // 5. Stairs, Slabs, Fences, Gates, Pressure Plates, Buttons, Walls
+  const isSuffixBlock =
+    lower.endsWith('_stairs') ||
+    lower.endsWith('_slab') ||
+    lower.endsWith('_fence') ||
+    lower.endsWith('_fence_gate') ||
+    lower.endsWith('_pressure_plate') ||
+    lower.endsWith('_button') ||
+    lower.endsWith('_wall');
+
+  if (isSuffixBlock) {
+    const base = lower
+      .replace(/_stairs$/, '')
+      .replace(/_slab$/, '')
+      .replace(/_fence_gate$/, '')
+      .replace(/_fence$/, '')
+      .replace(/_pressure_plate$/, '')
+      .replace(/_button$/, '')
+      .replace(/_wall$/, '');
+
+    const WOOD_TYPES = [
+      'oak',
+      'spruce',
+      'birch',
+      'jungle',
+      'acacia',
+      'dark_oak',
+      'mangrove',
+      'cherry',
+      'bamboo',
+      'crimson',
+      'warped',
+    ];
+
+    if (base === 'bamboo_mosaic') return 'bamboo_mosaic';
+    if (
+      WOOD_TYPES.includes(base) ||
+      WOOD_TYPES.some((w) => base === `${w}_wood`)
+    ) {
+      return `${base.replace(/_wood$/, '')}_planks`;
+    }
+
+    // stone_brick_* -> stone_bricks, mossy_stone_brick_* -> mossy_stone_bricks
+    if (
+      base === 'mossy_stone_brick' ||
+      base === 'mossy_stone_bricks' ||
+      base.startsWith('mossy_stone_brick')
+    ) {
+      return 'mossy_stone_bricks';
+    }
+    if (
+      base === 'stone_brick' ||
+      base === 'stone_bricks' ||
+      base.startsWith('stone_brick')
+    ) {
+      return 'stone_bricks';
+    }
+
+    // red_nether_brick_* -> red_nether_bricks, nether_brick_* -> nether_bricks
+    if (
+      base === 'red_nether_brick' ||
+      base === 'red_nether_bricks' ||
+      base.startsWith('red_nether_brick')
+    ) {
+      return 'red_nether_bricks';
+    }
+    if (
+      base === 'nether_brick' ||
+      base === 'nether_bricks' ||
+      base.startsWith('nether_brick')
+    ) {
+      return 'nether_bricks';
+    }
+
+    // deepslate_brick_* -> deepslate_bricks, deepslate_tile_* -> deepslate_tiles
+    if (
+      base === 'deepslate_brick' ||
+      base === 'deepslate_bricks' ||
+      base.startsWith('deepslate_brick')
+    ) {
+      return 'deepslate_bricks';
+    }
+    if (
+      base === 'deepslate_tile' ||
+      base === 'deepslate_tiles' ||
+      base.startsWith('deepslate_tile')
+    ) {
+      return 'deepslate_tiles';
+    }
+
+    // mud_brick_* -> mud_bricks
+    if (
+      base === 'mud_brick' ||
+      base === 'mud_bricks' ||
+      base.startsWith('mud_brick')
+    ) {
+      return 'mud_bricks';
+    }
+
+    // prismarine_brick_* -> prismarine_bricks
+    if (
+      base === 'prismarine_brick' ||
+      base === 'prismarine_bricks' ||
+      base.startsWith('prismarine_brick')
+    ) {
+      return 'prismarine_bricks';
+    }
+
+    // end_stone_brick_* -> end_stone_bricks
+    if (
+      base === 'end_stone_brick' ||
+      base === 'end_stone_bricks' ||
+      base.startsWith('end_stone_brick')
+    ) {
+      return 'end_stone_bricks';
+    }
+
+    // brick_* -> bricks
+    if (base === 'brick' || base === 'bricks' || base.startsWith('brick')) {
+      return 'bricks';
+    }
+
+    // quartz_* / smooth_quartz_* -> quartz_block_side (bzw. quartz_block_top)
+    if (base.includes('quartz')) {
+      return face === 'top' || face === 'bottom'
+        ? 'quartz_block_top'
+        : 'quartz_block_side';
+    }
+
+    // red_sandstone_* / cut_red_sandstone_* / smooth_red_sandstone_*
+    if (base.includes('red_sandstone')) {
+      if (face === 'top') return 'red_sandstone_top';
+      if (face === 'bottom') return 'red_sandstone_bottom';
+      if (base.includes('cut')) return 'cut_red_sandstone';
+      return 'red_sandstone';
+    }
+
+    // sandstone_* / cut_sandstone_* / smooth_sandstone_*
+    if (base.includes('sandstone')) {
+      if (face === 'top') return 'sandstone_top';
+      if (face === 'bottom') return 'sandstone_bottom';
+      if (base.includes('cut')) return 'cut_sandstone';
+      return 'sandstone';
+    }
+
+    // cobblestone_* -> cobblestone, mossy_cobblestone_* -> mossy_cobblestone
+    if (base === 'mossy_cobblestone' || base.startsWith('mossy_cobblestone')) {
+      return 'mossy_cobblestone';
+    }
+    if (base === 'cobblestone' || base.startsWith('cobblestone')) {
+      return 'cobblestone';
+    }
+
+    // smooth_stone_slab -> smooth_stone
+    if (lower === 'smooth_stone_slab') {
+      return face === 'side' ? 'smooth_stone_slab_side' : 'smooth_stone';
+    }
+    if (base === 'smooth_stone') {
+      return 'smooth_stone';
+    }
+
+    // stone_* -> stone
+    if (base === 'stone' || base.startsWith('stone')) {
+      return 'stone';
+    }
+
+    // Andesite / Diorite / Granite / Blackstone / Purpur analog
+    if (base.includes('andesite')) {
+      return base.includes('polished') ? 'polished_andesite' : 'andesite';
+    }
+    if (base.includes('diorite')) {
+      return base.includes('polished') ? 'polished_diorite' : 'diorite';
+    }
+    if (base.includes('granite')) {
+      return base.includes('polished') ? 'polished_granite' : 'granite';
+    }
+    if (base.includes('blackstone')) {
+      if (base.includes('brick')) return 'polished_blackstone_bricks';
+      return base.includes('polished') ? 'polished_blackstone' : 'blackstone';
+    }
+    if (base.includes('purpur')) {
+      return 'purpur_block';
+    }
+    if (base.includes('prismarine')) {
+      return base.includes('dark') ? 'dark_prismarine' : 'prismarine';
+    }
+    if (base.includes('tuff')) {
+      if (base.includes('brick')) return 'tuff_bricks';
+      return base.includes('polished') ? 'polished_tuff' : 'tuff';
+    }
+    if (base.includes('deepslate')) {
+      if (base.includes('cobbled')) return 'cobbled_deepslate';
+      return base.includes('polished') ? 'polished_deepslate' : 'deepslate';
+    }
+
+    return base;
+  }
+
+  // Specific face queries
+  if (lower === 'smooth_stone_slab') {
+    return face === 'side' ? 'smooth_stone_slab_side' : 'smooth_stone';
+  }
+  if (lower === 'sandstone' || lower === 'smooth_sandstone') {
+    return face === 'top'
+      ? 'sandstone_top'
+      : face === 'bottom'
+      ? 'sandstone_bottom'
+      : 'sandstone';
+  }
+  if (lower === 'red_sandstone' || lower === 'smooth_red_sandstone') {
+    return face === 'top'
+      ? 'red_sandstone_top'
+      : face === 'bottom'
+      ? 'red_sandstone_bottom'
+      : 'red_sandstone';
+  }
+  if (lower === 'quartz_block' || lower === 'smooth_quartz') {
+    return face === 'top' || face === 'bottom'
+      ? 'quartz_block_top'
+      : 'quartz_block_side';
+  }
+
+  return resolveTextureNameForBlock(lower);
 }
 
 /**
@@ -1576,17 +1953,25 @@ export function getMinecraftBlockMaterial(
     return mats;
   }
 
-  // 15. Laub (_leaves), vine und lily_pad
+  // 15. Laub (_leaves), vine, lily_pad, glow_lichen & sculk_vein
   const isFoliage =
-    raw.includes('leaves') || raw === 'vine' || raw === 'lily_pad';
+    raw.includes('leaves') ||
+    raw === 'vine' ||
+    raw === 'lily_pad' ||
+    raw === 'glow_lichen' ||
+    raw === 'sculk_vein';
 
   if (isFoliage) {
     const tex = getMinecraftTexture(raw);
+    const hasTint =
+      raw.includes('leaves') || raw === 'vine' || raw === 'lily_pad';
     const mat = new THREE.MeshStandardMaterial({
       map: tex,
-      color: new THREE.Color(BIOME_FOLIAGE_TINT),
+      color: hasTint
+        ? new THREE.Color(BIOME_FOLIAGE_TINT)
+        : new THREE.Color('#ffffff'),
       transparent: true,
-      alphaTest: 0.5,
+      alphaTest: 0.2,
       roughness: 0.8,
       metalness: 0.0,
       side: THREE.DoubleSide,
@@ -1707,7 +2092,7 @@ export function getMinecraftBlockMaterial(
   }
 
   // 19. Standard Minecraft Solid Blocks, Slabs, Walls, Stairs etc.
-  const resolvedTexName = resolveTextureNameForBlock(raw);
+  const resolvedTexName = resolveBlockTextureName(raw, 'side');
   const tex = getMinecraftTexture(resolvedTexName);
   const mat = new THREE.MeshStandardMaterial({
     map: tex,
