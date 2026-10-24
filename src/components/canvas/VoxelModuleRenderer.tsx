@@ -13,6 +13,14 @@ import {
   useMinecraftBlockMaterial,
   getMinecraftBlockMaterial,
 } from '@/lib/minecraftTextures';
+import {
+  useMcmeta,
+  buildBlockGeometry,
+  getAtlasMaterial,
+  parseBlockIdentifier,
+  NeighborSolidMap,
+  McmetaData,
+} from '@/lib/mcmetaLoader';
 
 function isSameCoord(a: Vector3D | null, b: Vector3D): boolean {
   if (!a) return false;
@@ -49,7 +57,9 @@ function parseBlockState(
   else if (blockMap.has(`${x + 1},${y},${z}`)) detectedFacing = 'west';
   else if (blockMap.has(`${x - 1},${y},${z}`)) detectedFacing = 'east';
 
+  const parsedId = parseBlockIdentifier(block.type);
   const rawProps: Record<string, any> = {
+    ...parsedId.props,
     ...(block.properties || {}),
     ...(block.state || {}),
   };
@@ -240,6 +250,8 @@ function getVoxelBoxGeometry(
 interface SingleVoxelProps {
   block: VoxelBlock;
   blockMap: Map<string, VoxelBlock>;
+  mcmeta: McmetaData | null;
+  atlasMaterial: THREE.MeshLambertMaterial | null;
   isSubmitMode: boolean;
   isHovered: boolean;
   isDraftStart: boolean;
@@ -253,6 +265,8 @@ interface SingleVoxelProps {
 const SingleVoxel: React.FC<SingleVoxelProps> = ({
   block,
   blockMap,
+  mcmeta,
+  atlasMaterial,
   isSubmitMode,
   isHovered,
   isDraftStart,
@@ -264,6 +278,45 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
 }) => {
   const { x, y, z } = block.position;
   const material = useMinecraftBlockMaterial(block.type);
+
+  const parsedId = useMemo(
+    () => parseBlockIdentifier(block.type),
+    [block.type]
+  );
+  const blockTypeUpper = useMemo(
+    () => parsedId.name.toUpperCase(),
+    [parsedId.name]
+  );
+
+  const neighborSolidMap = useMemo<NeighborSolidMap>(() => {
+    const isSolidBlock = (b?: VoxelBlock) => {
+      if (!b) return false;
+      const t = b.type.toUpperCase();
+      return !(
+        t.includes('AIR') ||
+        t.includes('BARRIER') ||
+        t.includes('STRUCTURE_VOID') ||
+        t.includes('LIGHT') ||
+        t.includes('CARPET') ||
+        t.includes('PRESSURE_PLATE') ||
+        t.includes('VINE') ||
+        t.includes('LADDER')
+      );
+    };
+
+    return {
+      north: isSolidBlock(blockMap.get(`${x},${y},${z - 1}`)),
+      south: isSolidBlock(blockMap.get(`${x},${y},${z + 1}`)),
+      east: isSolidBlock(blockMap.get(`${x + 1},${y},${z}`)),
+      west: isSolidBlock(blockMap.get(`${x - 1},${y},${z}`)),
+      up: isSolidBlock(blockMap.get(`${x},${y + 1},${z}`)),
+    };
+  }, [blockMap, x, y, z]);
+
+  const blockGeometry = useMemo(() => {
+    if (!mcmeta) return null;
+    return buildBlockGeometry(block.type, neighborSolidMap, mcmeta);
+  }, [block.type, neighborSolidMap, mcmeta]);
 
   const blockState = useMemo(
     () => parseBlockState(block, blockMap),
@@ -301,8 +354,6 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
       onPick(block.position, true);
     }
   };
-
-  const blockTypeUpper = block.type.toUpperCase();
 
   const isAirOrBarrier =
     blockTypeUpper === 'BARRIER' ||
@@ -1456,8 +1507,17 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
         <boxGeometry args={[1, 1, 1]} />
       </mesh>
 
-      {/* 1:1 Minecraft Accurate Rendered Geometry */}
-      {renderGeometryByType()}
+      {/* 1:1 Minecraft Accurate Rendered Geometry via misode/mcmeta Atlas or Fallback */}
+      {blockGeometry && atlasMaterial ? (
+        <mesh
+          geometry={blockGeometry}
+          material={atlasMaterial}
+          castShadow
+          receiveShadow
+        />
+      ) : (
+        renderGeometryByType()
+      )}
 
       {/* Highlight plate when a Cut is selected */}
       {(isSelectedCutStart || isSelectedCutEnd) && !isSubmitMode && (
@@ -1581,6 +1641,11 @@ export const VoxelModuleRenderer: React.FC = () => {
   );
 
   const isSubmitMode = activeMode === 'SUBMIT';
+  const { mcmeta } = useMcmeta();
+  const atlasMaterial = useMemo(() => {
+    if (!mcmeta) return null;
+    return getAtlasMaterial(mcmeta.atlasTexture);
+  }, [mcmeta]);
 
   // O(1) Fast Spatial Lookup for neighbor connectivity and auto-facing
   const blockMap = useMemo(() => {
@@ -1626,6 +1691,8 @@ export const VoxelModuleRenderer: React.FC = () => {
             key={key}
             block={block}
             blockMap={blockMap}
+            mcmeta={mcmeta}
+            atlasMaterial={atlasMaterial}
             isSubmitMode={isSubmitMode}
             isHovered={isHovered}
             isDraftStart={isDraftStart}

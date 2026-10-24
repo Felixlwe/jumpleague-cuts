@@ -30,35 +30,75 @@ export interface ParsedSchematic {
  * Parses block state strings formatted like:
  * "minecraft:oak_stairs[facing=east,half=bottom,waterlogged=false]"
  */
-export function parseBlockStateString(raw: string): {
+/**
+ * Parses block state strings formatted like:
+ * "minecraft:oak_stairs[facing=east,half=bottom,waterlogged=false]"
+ * or block names with an optional NBT properties compound.
+ * Always builds a canonical sorted bracket string (e.g. "minecraft:vine[east=false,north=true]")
+ * and a string properties dictionary.
+ */
+export function parseBlockStateString(
+  raw: string,
+  additionalProps?: Record<string, any>
+): {
   type: string;
+  cleanName: string;
   facing?: 'north' | 'south' | 'east' | 'west' | 'up' | 'down';
   half?: 'bottom' | 'top';
   slabType?: 'bottom' | 'top' | 'double';
   open?: boolean;
   state: Record<string, string | boolean | number>;
+  properties: Record<string, string>;
   isAir: boolean;
 } {
   const bracketIdx = raw.indexOf('[');
   const fullName = bracketIdx === -1 ? raw : raw.substring(0, bracketIdx);
   const cleanName = fullName.replace(/^minecraft:/, '').toLowerCase().trim();
+  const properties: Record<string, string> = {};
   const state: Record<string, string | boolean | number> = {};
 
+  // 1. Parse brackets in raw string
   if (bracketIdx !== -1 && raw.endsWith(']')) {
     const statesInside = raw.substring(bracketIdx + 1, raw.length - 1);
     const pairs = statesInside.split(',');
     for (const pair of pairs) {
-      const [k, v] = pair.split('=');
-      if (k && v) {
-        const key = k.trim().toLowerCase();
-        const val = v.trim().toLowerCase();
-        if (val === 'true') state[key] = true;
-        else if (val === 'false') state[key] = false;
-        else if (!isNaN(Number(val))) state[key] = Number(val);
-        else state[key] = val;
+      const eqIdx = pair.indexOf('=');
+      if (eqIdx !== -1) {
+        const key = pair.substring(0, eqIdx).trim().toLowerCase();
+        const val = pair.substring(eqIdx + 1).trim().toLowerCase();
+        if (key) {
+          properties[key] = val;
+          if (val === 'true') state[key] = true;
+          else if (val === 'false') state[key] = false;
+          else if (!isNaN(Number(val)) && val !== '') state[key] = Number(val);
+          else state[key] = val;
+        }
       }
     }
   }
+
+  // 2. Merge additionalProps if provided (e.g. from NBT Properties compound)
+  if (additionalProps && typeof additionalProps === 'object') {
+    for (const [k, v] of Object.entries(additionalProps)) {
+      if (v !== undefined && v !== null) {
+        const key = k.toLowerCase().trim();
+        const valStr = String(v).toLowerCase().trim();
+        properties[key] = valStr;
+        if (valStr === 'true') state[key] = true;
+        else if (valStr === 'false') state[key] = false;
+        else if (!isNaN(Number(valStr)) && valStr !== '') state[key] = Number(valStr);
+        else state[key] = valStr;
+      }
+    }
+  }
+
+  // 3. Construct canonical formatted type string with sorted properties:
+  // e.g. "minecraft:vine[east=false,north=true]"
+  const sortedKeys = Object.keys(properties).sort();
+  const formattedType =
+    sortedKeys.length > 0
+      ? `minecraft:${cleanName}[${sortedKeys.map((k) => `${k}=${properties[k]}`).join(',')}]`
+      : `minecraft:${cleanName}`;
 
   const isAir =
     cleanName === 'air' ||
@@ -70,32 +110,43 @@ export function parseBlockStateString(raw: string): {
   // Extract explicit properties
   let facing: 'north' | 'south' | 'east' | 'west' | 'up' | 'down' | undefined =
     undefined;
-  if (
-    typeof state.facing === 'string' &&
-    ['north', 'south', 'east', 'west', 'up', 'down'].includes(state.facing)
-  ) {
-    facing = state.facing as 'north' | 'south' | 'east' | 'west' | 'up' | 'down';
+  const fVal =
+    properties.facing ||
+    (typeof state.facing === 'string' ? state.facing : undefined);
+  if (fVal && ['north', 'south', 'east', 'west', 'up', 'down'].includes(fVal)) {
+    facing = fVal as 'north' | 'south' | 'east' | 'west' | 'up' | 'down';
   }
 
+  const hVal = properties.half || state.half;
   const half =
-    state.half === 'top' || state.half === 'bottom'
-      ? (state.half as 'bottom' | 'top')
+    hVal === 'top' || hVal === 'bottom'
+      ? (hVal as 'bottom' | 'top')
       : undefined;
 
+  const tVal = properties.type || state.type;
   const slabType =
-    state.type === 'top' || state.type === 'bottom' || state.type === 'double'
-      ? (state.type as 'bottom' | 'top' | 'double')
+    tVal === 'top' || tVal === 'bottom' || tVal === 'double'
+      ? (tVal as 'bottom' | 'top' | 'double')
       : undefined;
 
-  const open = typeof state.open === 'boolean' ? state.open : undefined;
+  const open =
+    typeof state.open === 'boolean'
+      ? state.open
+      : properties.open === 'true'
+      ? true
+      : properties.open === 'false'
+      ? false
+      : undefined;
 
   return {
-    type: cleanName,
+    type: formattedType,
+    cleanName,
     facing,
     half,
     slabType,
     open,
     state,
+    properties,
     isAir,
   };
 }
@@ -431,16 +482,8 @@ export function parseLitematicaCompound(
       return parseBlockStateString('minecraft:air');
     }
     const blockName = String(item.Name || item.name || 'minecraft:air');
-    const props = item.Properties || item.properties;
-
-    if (props && typeof props === 'object' && Object.keys(props).length > 0) {
-      const propStr = Object.entries(props)
-        .map(([k, v]) => `${k}=${v}`)
-        .join(',');
-      return parseBlockStateString(`${blockName}[${propStr}]`);
-    }
-
-    return parseBlockStateString(blockName);
+    const props = item.Properties || item.properties || {};
+    return parseBlockStateString(blockName, props);
   });
 
   // 4. Lese das BlockStates Array (Bit-Packed Long Array)
@@ -498,6 +541,7 @@ export function parseLitematicaCompound(
           slabType: parsed.slabType,
           open: parsed.open,
           state: parsed.state,
+          properties: parsed.properties,
         });
       }
     }
@@ -573,16 +617,8 @@ export function parseVanillaStructureCompound(
       return parseBlockStateString('minecraft:air');
     }
     const blockName = String(item.Name || item.name || 'minecraft:air');
-    const props = item.Properties || item.properties;
-
-    if (props && typeof props === 'object' && Object.keys(props).length > 0) {
-      const propStr = Object.entries(props)
-        .map(([k, v]) => `${k}=${v}`)
-        .join(',');
-      return parseBlockStateString(`${blockName}[${propStr}]`);
-    }
-
-    return parseBlockStateString(blockName);
+    const props = item.Properties || item.properties || {};
+    return parseBlockStateString(blockName, props);
   });
 
   const rawBlocks: any[] = Array.isArray(rootCompound.blocks)
@@ -621,6 +657,7 @@ export function parseVanillaStructureCompound(
       slabType: parsed.slabType,
       open: parsed.open,
       state: parsed.state,
+      properties: parsed.properties,
     });
   }
 
@@ -820,6 +857,7 @@ export async function parseSchematicData(
             slabType: parsed.slabType,
             open: parsed.open,
             state: parsed.state,
+            properties: parsed.properties,
           });
         }
       }
@@ -854,15 +892,25 @@ export async function parseSchematicData(
             half = (meta & 0x04) !== 0 ? 'top' : 'bottom';
           }
 
+          const legacyProps: Record<string, string> = {};
+          if (facing) legacyProps.facing = facing;
+          if (half) legacyProps.half = half;
+          const parsed = parseBlockStateString(
+            `minecraft:${typeName}`,
+            legacyProps
+          );
+
           blocks.push({
             position: {
               x: x - halfWidth,
               y: y + 1,
               z: z,
             },
-            type: typeName,
-            facing,
-            half,
+            type: parsed.type,
+            facing: parsed.facing,
+            half: parsed.half,
+            state: parsed.state,
+            properties: parsed.properties,
           });
         }
       }

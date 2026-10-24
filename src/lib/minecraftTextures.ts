@@ -51,6 +51,8 @@ export function sanitizeTextureName(raw: string): string {
     .toLowerCase()
     .trim()
     .replace(/^minecraft:/, '')
+    .split('[')[0]
+    .trim()
     .replace(/\.png$/, '');
 }
 
