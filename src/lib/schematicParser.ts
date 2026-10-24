@@ -1,8 +1,22 @@
 import { ungzip, inflate } from 'pako';
-import { JLModule, Vector3D, VoxelBlock } from '@/types/jumpleague';
+import {
+  JLModule,
+  ModuleDifficulty,
+  Vector3D,
+  VoxelBlock,
+} from '@/types/jumpleague';
 
 /**
- * Result of a successfully parsed Minecraft schematic (.schem / .schematic)
+ * Options for schematic parsing
+ */
+export interface SchematicParseOptions {
+  difficulty?: ModuleDifficulty;
+  shortCode?: string;
+  name?: string;
+}
+
+/**
+ * Result of a successfully parsed Minecraft schematic (.schem / .schematic / .nbt)
  */
 export interface ParsedSchematic {
   name: string;
@@ -524,11 +538,171 @@ export function parseLitematicaCompound(
 }
 
 /**
- * Decompresses and parses a .schem (Sponge v1/v2/v3), native .litematic or legacy .schematic file
+ * Parses a Vanilla Minecraft Structure NBT (.nbt) compound (e.g. from structure blocks or modules.top)
+ */
+export function parseVanillaStructureCompound(
+  rootCompound: Record<string, any>,
+  fallbackName: string = 'Structure-Module',
+  options?: SchematicParseOptions
+): ParsedSchematic {
+  const sizeArray = rootCompound.size || rootCompound.Size;
+  if (!Array.isArray(sizeArray) || sizeArray.length < 3) {
+    throw new Error('Vanilla Structure NBT enthält kein gültiges "size" Array.');
+  }
+
+  const width = Math.abs(Number(sizeArray[0]));
+  const height = Math.abs(Number(sizeArray[1]));
+  const length = Math.abs(Number(sizeArray[2]));
+
+  if (!width || !height || !length) {
+    throw new Error(
+      `Ungültige Structure-Dimensionen: x=${sizeArray[0]}, y=${sizeArray[1]}, z=${sizeArray[2]}`
+    );
+  }
+
+  const rawPalette: any[] = Array.isArray(rootCompound.palette)
+    ? rootCompound.palette
+    : Array.isArray(rootCompound.Palette)
+    ? rootCompound.Palette
+    : [];
+
+  const paletteMap = rawPalette.map((item) => {
+    if (!item || typeof item !== 'object') {
+      return parseBlockStateString('minecraft:air');
+    }
+    const blockName = String(item.Name || item.name || 'minecraft:air');
+    const props = item.Properties || item.properties;
+
+    if (props && typeof props === 'object' && Object.keys(props).length > 0) {
+      const propStr = Object.entries(props)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(',');
+      return parseBlockStateString(`${blockName}[${propStr}]`);
+    }
+
+    return parseBlockStateString(blockName);
+  });
+
+  const rawBlocks: any[] = Array.isArray(rootCompound.blocks)
+    ? rootCompound.blocks
+    : Array.isArray(rootCompound.Blocks)
+    ? rootCompound.Blocks
+    : [];
+
+  const blocks: VoxelBlock[] = [];
+  const halfWidth = Math.floor(width / 2);
+
+  for (const b of rawBlocks) {
+    if (!b || typeof b !== 'object') continue;
+    const pos = b.pos;
+    if (!Array.isArray(pos) || pos.length < 3) continue;
+
+    const bx = Number(pos[0]);
+    const by = Number(pos[1]);
+    const bz = Number(pos[2]);
+
+    const stateIdx = Number(b.state ?? 0);
+    const parsed =
+      paletteMap[stateIdx] || parseBlockStateString('minecraft:air');
+
+    if (parsed.isAir) continue;
+
+    blocks.push({
+      position: {
+        x: bx - halfWidth,
+        y: by + 1,
+        z: bz,
+      },
+      type: parsed.type,
+      facing: parsed.facing,
+      half: parsed.half,
+      slabType: parsed.slabType,
+      open: parsed.open,
+      state: parsed.state,
+    });
+  }
+
+  // Parse BukkitValues if present (e.g. modules.top provides start, finish, difficulty, name)
+  const bukkit = rootCompound.BukkitValues;
+  let spawnPoint: Vector3D | undefined = undefined;
+  let finishPoint: Vector3D | undefined = undefined;
+  let detectedDifficulty: ModuleDifficulty | undefined = undefined;
+  let detectedName: string | undefined = undefined;
+
+  if (bukkit && typeof bukkit === 'object') {
+    if (Array.isArray(bukkit.start) && bukkit.start.length >= 3) {
+      spawnPoint = {
+        x: Number(bukkit.start[0]) - halfWidth,
+        y: Number(bukkit.start[1]) + 1,
+        z: Number(bukkit.start[2]),
+      };
+    }
+    if (Array.isArray(bukkit.finish) && bukkit.finish.length >= 3) {
+      finishPoint = {
+        x: Number(bukkit.finish[0]) - halfWidth,
+        y: Number(bukkit.finish[1]) + 1,
+        z: Number(bukkit.finish[2]),
+      };
+    }
+    if (typeof bukkit.difficulty === 'string') {
+      const d = bukkit.difficulty.toUpperCase();
+      if (d === 'EASY' || d === 'MEDIUM' || d === 'HARD' || d === 'ULTRA') {
+        detectedDifficulty = d as ModuleDifficulty;
+      }
+    }
+    if (bukkit.name !== undefined && bukkit.name !== null) {
+      detectedName = String(bukkit.name).trim();
+    }
+  }
+
+  const resolvedName =
+    options?.name ||
+    (detectedName ? `Modul ${detectedName}` : '') ||
+    fallbackName
+      .replace(/\.(schem|schematic|litematic|nbt)$/i, '')
+      .replace(/[_\s-]+/g, ' ')
+      .trim() ||
+    'Importiertes Modul';
+
+  const resolvedId =
+    options?.shortCode ||
+    (detectedName ? `#${detectedName}` : '') ||
+    fallbackName
+      .replace(/\.(schem|schematic|litematic|nbt)$/i, '')
+      .trim() ||
+    `U-${Date.now().toString().slice(-4)}`;
+
+  const resolvedDifficulty =
+    options?.difficulty || detectedDifficulty || 'EASY';
+
+  const module: JLModule = {
+    id: resolvedId,
+    shortCode: resolvedId,
+    name: resolvedName,
+    difficulty: resolvedDifficulty,
+    dimensions: { x: width, y: height, z: length },
+    blockCount: blocks.length,
+    blocks,
+    spawnPoint,
+    finishPoint,
+  };
+
+  return {
+    name: resolvedName,
+    dimensions: { x: width, y: height, z: length },
+    blockCount: blocks.length,
+    blocks,
+    module,
+  };
+}
+
+/**
+ * Decompresses and parses a .schem (Sponge v1/v2/v3), native .litematic, Vanilla structure .nbt or legacy .schematic file
  */
 export async function parseSchematicData(
   rawData: Uint8Array,
-  fallbackName: string = 'Uploaded-Module'
+  fallbackName: string = 'Uploaded-Module',
+  options?: SchematicParseOptions
 ): Promise<ParsedSchematic> {
   // 1. Gzip / Zlib decompression
   let decompressed: Uint8Array;
@@ -558,6 +732,14 @@ export async function parseSchematicData(
     !Array.isArray(rootCompound.Regions)
   ) {
     return parseLitematicaCompound(rootCompound, fallbackName);
+  }
+
+  // Check if Vanilla Structure NBT (.nbt / modules.top)
+  if (
+    (rootCompound.size && (rootCompound.palette || rootCompound.blocks)) ||
+    (rootCompound.Size && (rootCompound.Palette || rootCompound.Blocks))
+  ) {
+    return parseVanillaStructureCompound(rootCompound, fallbackName, options);
   }
 
   const schem = findSchematicCompound(rootCompound);
@@ -722,4 +904,33 @@ export async function parseSchematicFile(file: File): Promise<ParsedSchematic> {
   const buffer = await file.arrayBuffer();
   const uint8 = new Uint8Array(buffer);
   return parseSchematicData(uint8, file.name);
+}
+
+/**
+ * Converts a Base64 string to a Uint8Array across browser and Node environments
+ */
+export function base64ToUint8Array(base64: string): Uint8Array {
+  const clean = base64.trim().replace(/\s/g, '');
+  if (typeof Buffer !== 'undefined') {
+    return new Uint8Array(Buffer.from(clean, 'base64'));
+  }
+  const binaryString = atob(clean);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Parses a Base64-encoded Minecraft NBT / Schematic string (.schem, structure .nbt, or .litematic)
+ */
+export async function parseBase64Schematic(
+  base64String: string,
+  fallbackName: string = 'Imported-Module',
+  options?: SchematicParseOptions
+): Promise<ParsedSchematic> {
+  const rawData = base64ToUint8Array(base64String);
+  return parseSchematicData(rawData, fallbackName, options);
 }
