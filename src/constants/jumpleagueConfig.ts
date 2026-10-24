@@ -155,4 +155,10 @@ export const VOXEL_BLOCK_LABELS: Record<string, string> = {
   COBWEB: 'Spinnennetz',
   VINE: 'Ranken',
   LILY_PAD: 'Seerosenblatt',
+  OAK_STAIRS: 'Eichenholztreppe',
+  STONE_BRICK_STAIRS: 'Steinziegeltreppe',
+  OAK_TRAPDOOR: 'Eichenholzfalltür',
+  WHITE_CARPET: 'Weißer Teppich',
+  OAK_PRESSURE_PLATE: 'Eichenholzdruckplatte',
+  COBBLESTONE_WALL: 'Bruchsteinmauer',
 };

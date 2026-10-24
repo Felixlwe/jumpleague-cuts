@@ -67,6 +67,12 @@ export type VoxelBlockType =
 export interface VoxelBlock {
   position: Vector3D;
   type: VoxelBlockType;
+  facing?: 'north' | 'south' | 'east' | 'west' | 'up' | 'down' | string;
+  half?: 'bottom' | 'top' | string;
+  slabType?: 'bottom' | 'top' | 'double' | string;
+  open?: boolean;
+  state?: Record<string, string | boolean | number>;
+  properties?: Record<string, string | boolean | number>;
 }
 
 export interface FilterState {

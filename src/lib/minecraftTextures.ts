@@ -191,9 +191,50 @@ export function resolveTextureNameForBlock(blockType: string): string {
     return base.endsWith('planks') ? base : `${base}_planks`;
   }
 
+  if (lower.endsWith('_stairs')) {
+    const base = lower.replace(/_stairs$/, '');
+    if (base === 'stone_brick') return 'stone_bricks';
+    if (base === 'cobblestone' || base === 'stone') return base;
+    return base.endsWith('planks') ? base : `${base}_planks`;
+  }
+
   if (lower.endsWith('_fence')) {
     const base = lower.replace(/_fence$/, '');
     return base.endsWith('planks') ? base : `${base}_planks`;
+  }
+
+  if (lower.endsWith('_wall')) {
+    const base = lower.replace(/_wall$/, '');
+    if (base === 'stone_brick') return 'stone_bricks';
+    return base;
+  }
+
+  if (lower.endsWith('_carpet')) {
+    const base = lower.replace(/_carpet$/, '');
+    return `${base}_wool`;
+  }
+  if (lower === 'carpet') return 'white_wool';
+
+  if (lower.endsWith('_pressure_plate')) {
+    const base = lower.replace(/_pressure_plate$/, '');
+    if (
+      base === 'oak' ||
+      base === 'spruce' ||
+      base === 'birch' ||
+      base === 'jungle' ||
+      base === 'acacia' ||
+      base === 'dark_oak' ||
+      base === 'mangrove' ||
+      base === 'cherry'
+    ) {
+      return `${base}_planks`;
+    }
+    return base;
+  }
+
+  if (lower.endsWith('_pane')) {
+    const base = lower.replace(/_pane$/, '');
+    return base === 'iron' ? 'iron_bars' : `${base}_glass`;
   }
 
   return lower;
@@ -318,19 +359,33 @@ export function getMinecraftBlockMaterial(
     return mat;
   }
 
-  // 4. Glas, Leitern, Zäune und Spinnenweben (transparent: true, alphaTest: 0.1)
+  // 4. Glas, Leitern, Zäune, Spinnenweben, Falltüren und Scheiben (transparent: true, alphaTest: 0.1)
   const isGlass = raw.includes('glass');
   const isLadder = raw.includes('ladder');
   const isFence = raw.includes('fence');
   const isCobweb = raw.includes('cobweb') || raw === 'web';
   const isIronBars = raw.includes('iron_bars') || raw === 'bars';
+  const isTrapdoor = raw.includes('trapdoor');
+  const isPane = raw.includes('pane');
 
-  if (isGlass || isLadder || isFence || isCobweb || isIronBars) {
+  if (
+    isGlass ||
+    isLadder ||
+    isFence ||
+    isCobweb ||
+    isIronBars ||
+    isTrapdoor ||
+    isPane
+  ) {
     let texName = raw;
     if (isLadder) texName = 'ladder';
     else if (isCobweb) texName = 'cobweb';
     else if (isIronBars) texName = 'iron_bars';
-    else if (isFence) {
+    else if (isTrapdoor) {
+      texName = raw === 'trapdoor' ? 'oak_trapdoor' : raw;
+    } else if (isPane) {
+      texName = raw.includes('iron') ? 'iron_bars' : 'glass';
+    } else if (isFence) {
       if (raw === 'oak_fence' || raw === 'fence') texName = 'oak_planks';
       else if (raw.endsWith('_fence')) {
         const base = raw.replace(/_fence$/, '');
