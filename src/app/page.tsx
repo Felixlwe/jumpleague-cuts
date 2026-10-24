@@ -222,21 +222,10 @@ export default function ModuleHubPage() {
       />
 
       {/* Floating Admin Controls in the top-right corner on the checkered background */}
-      <div className="absolute top-4 right-4 z-50 flex flex-col items-end gap-2">
+      <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
         {isAdminAuthenticated ? (
           <>
-            {/* 1. Ausloggen-Button ganz oben rechts */}
-            <button
-              type="button"
-              onClick={() => setAdminAuthenticated(false)}
-              title="Admin abmelden"
-              className="group flex items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-950/80 px-3 py-1.5 font-mono text-xs font-semibold text-zinc-400 shadow-xl backdrop-blur-md transition hover:border-rose-500/50 hover:bg-rose-500/15 hover:text-rose-300"
-            >
-              <LogOut className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-              <span>Ausloggen</span>
-            </button>
-
-            {/* 2. 'Admin-Modus an' / 'ADMIN-MODUS AKTIV' Button direkt darunter */}
+            {/* 1. 'Admin-Modus an' / 'ADMIN-MODUS AKTIV' Button (links neben dem Ausloggen-Button) */}
             <button
               type="button"
               onClick={toggleAdminMode}
@@ -267,6 +256,17 @@ export default function ModuleHubPage() {
                 </>
               )}
             </button>
+
+            {/* 2. Ausloggen-Button (rechts daneben) */}
+            <button
+              type="button"
+              onClick={() => setAdminAuthenticated(false)}
+              title="Admin abmelden"
+              className="group flex items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-950/80 px-3 py-1.5 font-mono text-xs font-semibold text-zinc-400 shadow-xl backdrop-blur-md transition hover:border-rose-500/50 hover:bg-rose-500/15 hover:text-rose-300"
+            >
+              <LogOut className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+              <span>Ausloggen</span>
+            </button>
           </>
         ) : (
           <button
@@ -289,8 +289,8 @@ export default function ModuleHubPage() {
         className="hidden"
       />
 
-      {/* Main Content Container (pt-28 ensures clear vertical clearance below floating admin buttons) */}
-      <div className="relative z-10 mx-auto flex min-h-screen max-w-7xl flex-col px-4 pt-28 pb-24 sm:px-6 lg:px-8">
+      {/* Main Content Container (pt-16 places the main box directly below the floating buttons) */}
+      <div className="relative z-10 mx-auto flex min-h-screen max-w-7xl flex-col px-4 pt-16 pb-24 sm:px-6 lg:px-8">
         {/* Top Hero & Branding Header */}
         <header className="mb-8 flex flex-col justify-between gap-6 rounded-3xl border border-white/10 bg-zinc-950/75 p-6 shadow-2xl backdrop-blur-xl lg:flex-row lg:items-center">
           <div className="flex items-start gap-4 sm:items-center">
