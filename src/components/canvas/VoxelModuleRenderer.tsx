@@ -278,6 +278,21 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
     if (blockTypeUpper === 'LEVER') {
       return -0.21875;
     }
+    if (blockTypeUpper.endsWith('_BED') || blockTypeUpper === 'BED') {
+      return 0.0625;
+    }
+    if (blockTypeUpper === 'CAKE') {
+      return 0.0;
+    }
+    if (blockTypeUpper === 'END_PORTAL_FRAME') {
+      return 0.3125;
+    }
+    if (blockTypeUpper.includes('CAMPFIRE')) {
+      return -0.25;
+    }
+    if (blockTypeUpper === 'FLOWER_POT') {
+      return -0.125;
+    }
     // Ambosse, Zäune, Mauern, Treppen & Vollblöcke haben Oberfläche bei y = 0.5
     return 0.5;
   }, [blockTypeUpper, blockState]);
@@ -545,6 +560,218 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
         >
           <boxGeometry args={[0.875, 0.875, 0.875]} />
         </mesh>
+      );
+    }
+
+    // 13a. Betten (_bed, bed): 3D-Bettmatratze
+    if (blockTypeUpper.endsWith('_BED') || blockTypeUpper === 'BED') {
+      return (
+        <group>
+          <mesh
+            position={[0, -0.21875, 0]}
+            geometry={getVoxelBoxGeometry(1, 0.5625, 1)}
+            material={material}
+            castShadow
+            receiveShadow
+          />
+        </group>
+      );
+    }
+
+    // 13b. Türen (_door, door)
+    if (
+      (blockTypeUpper.endsWith('_DOOR') || blockTypeUpper === 'DOOR') &&
+      !blockTypeUpper.includes('TRAPDOOR')
+    ) {
+      let doorPos: [number, number, number] = [0, 0, -0.40625];
+      let doorSize: [number, number, number] = [1, 1, 0.1875];
+      if (blockState.facing === 'north') {
+        doorPos = [0, 0, -0.40625];
+        doorSize = [1, 1, 0.1875];
+      } else if (blockState.facing === 'south') {
+        doorPos = [0, 0, 0.40625];
+        doorSize = [1, 1, 0.1875];
+      } else if (blockState.facing === 'west') {
+        doorPos = [-0.40625, 0, 0];
+        doorSize = [0.1875, 1, 1];
+      } else if (blockState.facing === 'east') {
+        doorPos = [0.40625, 0, 0];
+        doorSize = [0.1875, 1, 1];
+      }
+      return (
+        <mesh
+          position={doorPos}
+          geometry={getVoxelBoxGeometry(doorSize[0], doorSize[1], doorSize[2])}
+          material={material}
+          castShadow
+          receiveShadow
+        />
+      );
+    }
+
+    // 13c. Schilder & Hängeschilder (_sign)
+    if (blockTypeUpper.includes('SIGN')) {
+      const isWallSign = blockTypeUpper.includes('WALL');
+      if (isWallSign) {
+        let signPos: [number, number, number] = [0, 0, 0.4375];
+        if (blockState.facing === 'north') signPos = [0, 0, 0.4375];
+        else if (blockState.facing === 'south') signPos = [0, 0, -0.4375];
+        else if (blockState.facing === 'west') signPos = [0.4375, 0, 0];
+        else if (blockState.facing === 'east') signPos = [-0.4375, 0, 0];
+        return (
+          <mesh position={signPos} material={material} castShadow>
+            <boxGeometry args={[0.875, 0.5, 0.0625]} />
+          </mesh>
+        );
+      }
+      return (
+        <group>
+          <mesh position={[0, -0.1875, 0]} material={material}>
+            <boxGeometry args={[0.125, 0.625, 0.125]} />
+          </mesh>
+          <mesh position={[0, 0.25, 0]} material={material} castShadow>
+            <boxGeometry args={[0.875, 0.5, 0.0625]} />
+          </mesh>
+        </group>
+      );
+    }
+
+    // 13d. Banner (_banner)
+    if (blockTypeUpper.includes('BANNER')) {
+      return (
+        <mesh position={[0, 0, 0]} material={material} castShadow>
+          <boxGeometry args={[0.875, 1, 0.0625]} />
+        </mesh>
+      );
+    }
+
+    // 13e. Kaktus (Cactus): Leicht eingerückt (14x16x14)
+    if (blockTypeUpper === 'CACTUS') {
+      return (
+        <mesh material={material} castShadow receiveShadow>
+          <boxGeometry args={[0.875, 1, 0.875]} />
+        </mesh>
+      );
+    }
+
+    // 13f. Kuchen (Cake)
+    if (blockTypeUpper === 'CAKE') {
+      return (
+        <mesh
+          position={[0, -0.25, 0]}
+          geometry={getVoxelBoxGeometry(0.875, 0.5, 0.875)}
+          material={material}
+          castShadow
+          receiveShadow
+        />
+      );
+    }
+
+    // 13g. Lagerfeuer (Campfire & Soul Campfire)
+    if (blockTypeUpper.includes('CAMPFIRE')) {
+      return (
+        <group position={[0, -0.25, 0]}>
+          <mesh
+            position={[0, -0.125, 0]}
+            geometry={getVoxelBoxGeometry(1, 0.25, 1)}
+            material={material}
+            castShadow
+            receiveShadow
+          />
+          <mesh rotation={[0, Math.PI / 4, 0]} material={material}>
+            <planeGeometry args={[0.75, 0.6]} />
+          </mesh>
+        </group>
+      );
+    }
+
+    // 13h. Endportal-Rahmen (End Portal Frame)
+    if (blockTypeUpper === 'END_PORTAL_FRAME') {
+      return (
+        <mesh
+          position={[0, -0.09375, 0]}
+          geometry={getVoxelBoxGeometry(1, 0.8125, 1)}
+          material={material}
+          castShadow
+          receiveShadow
+        />
+      );
+    }
+
+    // 13i. Gerüst (Scaffolding)
+    if (blockTypeUpper === 'SCAFFOLDING') {
+      return (
+        <group>
+          <mesh position={[0, 0.4375, 0]} material={material} castShadow>
+            <boxGeometry args={[1, 0.125, 1]} />
+          </mesh>
+          <mesh position={[0.4375, 0, 0.4375]} material={material}>
+            <boxGeometry args={[0.125, 1, 0.125]} />
+          </mesh>
+          <mesh position={[-0.4375, 0, 0.4375]} material={material}>
+            <boxGeometry args={[0.125, 1, 0.125]} />
+          </mesh>
+          <mesh position={[0.4375, 0, -0.4375]} material={material}>
+            <boxGeometry args={[0.125, 1, 0.125]} />
+          </mesh>
+          <mesh position={[-0.4375, 0, -0.4375]} material={material}>
+            <boxGeometry args={[0.125, 1, 0.125]} />
+          </mesh>
+        </group>
+      );
+    }
+
+    // 13j. Glocke (Bell)
+    if (blockTypeUpper === 'BELL') {
+      return (
+        <group>
+          <mesh position={[0, 0.4375, 0]} material={material} castShadow>
+            <boxGeometry args={[1, 0.125, 0.25]} />
+          </mesh>
+          <mesh position={[0, 0.05, 0]} material={material} castShadow>
+            <boxGeometry args={[0.5, 0.5, 0.5]} />
+          </mesh>
+        </group>
+      );
+    }
+
+    // 13k. Trichter (Hopper)
+    if (blockTypeUpper === 'HOPPER') {
+      return (
+        <group>
+          <mesh
+            position={[0, 0.3125, 0]}
+            material={material}
+            castShadow
+            receiveShadow
+          >
+            <boxGeometry args={[1, 0.375, 1]} />
+          </mesh>
+          <mesh position={[0, -0.0625, 0]} material={material} castShadow>
+            <boxGeometry args={[0.625, 0.375, 0.625]} />
+          </mesh>
+          <mesh position={[0, -0.375, 0]} material={material} castShadow>
+            <boxGeometry args={[0.375, 0.25, 0.375]} />
+          </mesh>
+        </group>
+      );
+    }
+
+    // 13l. Amethystknospen, Cluster & Tropfstein
+    if (
+      blockTypeUpper === 'AMETHYST_CLUSTER' ||
+      blockTypeUpper.endsWith('_AMETHYST_BUD') ||
+      blockTypeUpper === 'POINTED_DRIPSTONE'
+    ) {
+      return (
+        <group position={[0, -0.1, 0]}>
+          <mesh rotation={[0, Math.PI / 4, 0]} material={material}>
+            <planeGeometry args={[0.75, 0.8]} />
+          </mesh>
+          <mesh rotation={[0, -Math.PI / 4, 0]} material={material}>
+            <planeGeometry args={[0.75, 0.8]} />
+          </mesh>
+        </group>
       );
     }
 
