@@ -842,6 +842,24 @@ export function getMinecraftBlockMaterial(
     return cachedMat;
   }
 
+  // 0. Barrier, Light, Structure Void & Air: 100% transparent and invisible
+  if (
+    raw === 'barrier' ||
+    raw === 'structure_void' ||
+    raw === 'light' ||
+    raw === 'air' ||
+    raw === 'cave_air' ||
+    raw === 'void_air'
+  ) {
+    const invisibleMat = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+    materialCache.set(raw, invisibleMat);
+    return invisibleMat;
+  }
+
   // 1. Anvil, Chipped Anvil & Damaged Anvil (Multi-Face)
   if (raw === 'anvil' || raw === 'chipped_anvil' || raw === 'damaged_anvil') {
     const topTexName =

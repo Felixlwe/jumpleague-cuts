@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { Edges } from '@react-three/drei';
 import { ThreeEvent } from '@react-three/fiber';
@@ -243,6 +243,50 @@ const SingleVoxel: React.FC<SingleVoxelProps> = ({
   };
 
   const blockTypeUpper = block.type.toUpperCase();
+
+  const isAirOrBarrier =
+    blockTypeUpper === 'BARRIER' ||
+    blockTypeUpper === 'STRUCTURE_VOID' ||
+    blockTypeUpper === 'LIGHT' ||
+    blockTypeUpper === 'AIR' ||
+    blockTypeUpper === 'CAVE_AIR' ||
+    blockTypeUpper === 'VOID_AIR';
+
+  if (isAirOrBarrier) {
+    const hasCutHighlight =
+      (isSelectedCutStart || isSelectedCutEnd) && !isSubmitMode;
+    if (!isSubmitMode && !hasCutHighlight) return null;
+
+    return (
+      <group
+        position={[x, y, z]}
+        onPointerDown={handlePointerDown}
+        onPointerOver={handlePointerOver}
+        onPointerOut={handlePointerOut}
+        onClick={handleClick}
+      >
+        {isSubmitMode && (
+          <mesh visible={false}>
+            <boxGeometry args={[1, 1, 1]} />
+          </mesh>
+        )}
+        {hasCutHighlight && (
+          <mesh position={[0, 0.52, 0]}>
+            <boxGeometry args={[1.06, 0.04, 1.06]} />
+            <meshBasicMaterial
+              color={isSelectedCutStart ? '#06b6d4' : '#10b981'}
+              transparent
+              opacity={0.8}
+            />
+            <Edges
+              color={isSelectedCutStart ? '#67e8f9' : '#6ee7b7'}
+              threshold={1}
+            />
+          </mesh>
+        )}
+      </group>
+    );
+  }
 
   // Determine top surface elevation for cut selection highlight plates
   const topSurfaceElevation = useMemo(() => {
@@ -1289,11 +1333,21 @@ export const VoxelModuleRenderer: React.FC = () => {
     (s) => s.setActiveDraftMidPointIndex
   );
   const updateDraftMidPoint = useJLStore((s) => s.updateDraftMidPoint);
+  const loadModuleBlocks = useJLStore((s) => s.loadModuleBlocks);
 
   const currentModule = useMemo(
     () => modules.find((m) => m.id === selectedModuleId) ?? modules[0],
     [modules, selectedModuleId]
   );
+
+  useEffect(() => {
+    if (
+      currentModule &&
+      (!currentModule.blocks || currentModule.blocks.length === 0)
+    ) {
+      void loadModuleBlocks(currentModule.id);
+    }
+  }, [currentModule?.id, currentModule?.blocks?.length, loadModuleBlocks]);
 
   const selectedCut = useMemo(
     () => cuts.find((c) => c.id === selectedCutId) ?? null,
@@ -1305,11 +1359,27 @@ export const VoxelModuleRenderer: React.FC = () => {
   // O(1) Fast Spatial Lookup for neighbor connectivity and auto-facing
   const blockMap = useMemo(() => {
     const map = new Map<string, VoxelBlock>();
+    if (!currentModule || !Array.isArray(currentModule.blocks)) return map;
     for (const b of currentModule.blocks) {
       map.set(`${b.position.x},${b.position.y},${b.position.z}`, b);
     }
     return map;
-  }, [currentModule.blocks]);
+  }, [currentModule?.blocks]);
+
+  if (
+    !currentModule ||
+    !Array.isArray(currentModule.blocks) ||
+    currentModule.blocks.length === 0
+  ) {
+    return (
+      <WorldHtml position={[0, 4, 10]} center>
+        <div className="flex items-center gap-2.5 rounded-xl border border-emerald-500/40 bg-zinc-950/90 px-4 py-2 font-mono text-xs text-emerald-400 shadow-2xl backdrop-blur-md">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent" />
+          <span>Lade 3D-Blöcke für {currentModule?.name || 'Modul'}...</span>
+        </div>
+      </WorldHtml>
+    );
+  }
 
   return (
     <group>

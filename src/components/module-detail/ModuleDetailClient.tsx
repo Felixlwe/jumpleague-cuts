@@ -13,6 +13,7 @@ import { AdminAuthModal } from '@/components/hud/AdminAuthModal';
 import { BottomToolbar } from '@/components/hud/BottomToolbar';
 import { useJLStore } from '@/store/useJLStore';
 import { DIAMOND_BOOTS_DATA_URI } from '@/constants/diamondBootsAsset';
+import { fetchModuleById } from '@/lib/supabase';
 
 // Load main 3D Canvas strictly client-side (ssr: false)
 const ModuleScene = dynamic(
@@ -84,6 +85,8 @@ export const ModuleDetailClient: React.FC<ModuleDetailClientProps> = ({
   const modules = useJLStore((s) => s.modules);
   const selectedModuleId = useJLStore((s) => s.selectedModuleId);
   const selectModule = useJLStore((s) => s.selectModule);
+  const addModule = useJLStore((s) => s.addModule);
+  const isSyncingWithSupabase = useJLStore((s) => s.isSyncingWithSupabase);
 
   const matchedModule = useMemo(() => {
     if (!rawModuleId) return null;
@@ -104,6 +107,19 @@ export const ModuleDetailClient: React.FC<ModuleDetailClientProps> = ({
     );
   }, [modules, rawModuleId]);
 
+  // If not found in current store list, try fetching by ID directly from Supabase
+  useEffect(() => {
+    if (!isMounted || matchedModule || !rawModuleId) return;
+    let isCancelled = false;
+    fetchModuleById(rawModuleId).then((mod) => {
+      if (isCancelled || !mod) return;
+      void addModule(mod);
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [isMounted, matchedModule, rawModuleId, addModule]);
+
   // Automatically load and activate the module specified by the URL parameter [id]
   useEffect(() => {
     if (!isMounted || !matchedModule) return;
@@ -112,7 +128,7 @@ export const ModuleDetailClient: React.FC<ModuleDetailClientProps> = ({
     }
   }, [isMounted, matchedModule, selectedModuleId, selectModule]);
 
-  if (!isMounted) {
+  if (!isMounted || (!matchedModule && isSyncingWithSupabase)) {
     return (
       <main className="relative flex h-screen w-screen items-center justify-center overflow-hidden bg-[#1c202d] font-mono text-xs text-zinc-400">
         <div className="flex flex-col items-center gap-2.5">

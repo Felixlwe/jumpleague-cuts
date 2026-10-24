@@ -16,6 +16,7 @@ import {
   updateCutInSupabase,
   deleteCutFromSupabase,
   fetchModulesFromSupabase,
+  fetchModuleById,
   upsertModuleInSupabase,
   deleteModuleInSupabase,
   bulkSoftDeleteModulesInSupabase,
@@ -124,6 +125,7 @@ export interface JLStoreState {
 
   // Core Actions
   selectModule: (moduleId: string) => void;
+  loadModuleBlocks: (moduleId: string) => Promise<VoxelBlock[]>;
   addModule: (module: JLModule) => Promise<void> | void;
   updateModule: (
     moduleId: string,
@@ -296,11 +298,54 @@ export const useJLStore = create<JLStoreState>()(
           pickStage: 'START',
           cameraResetCounter: state.cameraResetCounter + 1,
         });
+
+        // Auto-fetch 3D voxel blocks on demand if not yet loaded in memory
+        if (matchedModule && (!matchedModule.blocks || matchedModule.blocks.length === 0)) {
+          void get().loadModuleBlocks(resolvedId);
+        }
+      },
+
+      loadModuleBlocks: async (moduleId: string) => {
+        const state = get();
+        const cleanId = moduleId.trim().replace(/^#+/, '');
+        const current = state.modules.find(
+          (m) => m.id === moduleId || m.id === cleanId || m.id === `#${cleanId}`
+        );
+
+        if (current && current.blocks && current.blocks.length > 0) {
+          return current.blocks;
+        }
+
+        try {
+          const remoteMod = await fetchModuleById(moduleId);
+          if (remoteMod && remoteMod.blocks && remoteMod.blocks.length > 0) {
+            set((s) => ({
+              modules: s.modules.map((m) =>
+                m.id === moduleId || m.id === cleanId || m.id === `#${cleanId}`
+                  ? {
+                      ...m,
+                      blocks: remoteMod.blocks,
+                      blockCount: remoteMod.blocks.length,
+                      dimensions: remoteMod.dimensions,
+                      spawnPoint: remoteMod.spawnPoint ?? m.spawnPoint,
+                      finishPoint: remoteMod.finishPoint ?? m.finishPoint,
+                    }
+                  : m
+              ),
+            }));
+            return remoteMod.blocks;
+          }
+        } catch (err) {
+          console.warn('[Store] Could not load blocks for module:', moduleId, err);
+        }
+
+        return current?.blocks || [];
       },
 
       addModule: async (newModule) => {
-        // Falls dieses Modul zuvor als gelöscht markiert war, aus deleted-Liste entfernen
-        removeLocalDeletedModuleIds([newModule.id]);
+        const cleanId = newModule.id.trim().replace(/^#+/, '');
+        // Un-delete across all ID variants (with and without #)
+        removeLocalDeletedModuleIds([newModule.id, cleanId, `#${cleanId}`]);
 
         // 1. Zuerst direkt an Supabase senden (mit is_deleted: false)
         try {
@@ -311,13 +356,17 @@ export const useJLStore = create<JLStoreState>()(
 
         // 2. Danach den lokalen State aktualisieren
         const state = get();
-        const existingIdx = state.modules.findIndex((m) => m.id === newModule.id);
+        const existingIdx = state.modules.findIndex(
+          (m) => m.id === newModule.id || m.id === cleanId || m.id === `#${cleanId}`
+        );
         const updatedModules =
           existingIdx >= 0
             ? state.modules.map((m, idx) => (idx === existingIdx ? newModule : m))
             : [newModule, ...state.modules];
 
-        const nextDeleted = state.deletedModuleIds.filter((id) => id !== newModule.id);
+        const nextDeleted = state.deletedModuleIds.filter(
+          (id) => id !== newModule.id && id !== cleanId && id !== `#${cleanId}`
+        );
 
         set({
           modules: updatedModules,
@@ -598,6 +647,7 @@ export const useJLStore = create<JLStoreState>()(
       setAdminAuthModalOpen: (open) => set({ isAdminAuthModalOpen: open }),
 
       syncModulesFromSupabase: async () => {
+        set({ isSyncingWithSupabase: true });
         try {
           // 1. Hole gelöschte IDs aus dem localStorage als verlässliches Backup
           const localDeleted = getLocalDeletedModuleIds();
@@ -609,7 +659,11 @@ export const useJLStore = create<JLStoreState>()(
           let remoteActive: JLModule[] = [];
           if (result !== null) {
             // Füge alle remote soft-gelöschten IDs hinzu
-            result.deletedIds.forEach((id) => deletedSet.add(id));
+            result.deletedIds.forEach((id) => {
+              deletedSet.add(id);
+              deletedSet.add(id.replace(/^#+/, ''));
+              deletedSet.add(`#${id.replace(/^#+/, '')}`);
+            });
             remoteActive = result.activeModules;
 
             // Aktualisiere das Backup im localStorage mit den remote ermittelten IDs
@@ -622,22 +676,40 @@ export const useJLStore = create<JLStoreState>()(
 
             // A. Basis Mock-Module als Fundament (nur wenn NICHT gelöscht)
             INITIAL_MODULES.forEach((m) => {
-              if (!deletedSet.has(m.id)) {
+              const cleanId = m.id.replace(/^#+/, '');
+              if (!deletedSet.has(m.id) && !deletedSet.has(cleanId) && !deletedSet.has(`#${cleanId}`)) {
                 moduleMap.set(m.id, m);
               }
             });
 
             // B. Lokale State-Module einbeziehen (nur wenn NICHT gelöscht)
             state.modules.forEach((m) => {
-              if (!deletedSet.has(m.id)) {
+              const cleanId = m.id.replace(/^#+/, '');
+              if (!deletedSet.has(m.id) && !deletedSet.has(cleanId) && !deletedSet.has(`#${cleanId}`)) {
                 moduleMap.set(m.id, m);
               }
             });
 
             // C. Aus Supabase geladene aktive Module haben höchste Priorität
             remoteActive.forEach((m) => {
-              if (!deletedSet.has(m.id)) {
-                moduleMap.set(m.id, m);
+              const cleanId = m.id.replace(/^#+/, '');
+              if (!deletedSet.has(m.id) && !deletedSet.has(cleanId) && !deletedSet.has(`#${cleanId}`)) {
+                const existing = moduleMap.get(m.id);
+                moduleMap.set(m.id, {
+                  ...m,
+                  blocks:
+                    m.blocks && m.blocks.length > 0
+                      ? m.blocks
+                      : existing?.blocks || [],
+                  blockCount:
+                    (m.blocks && m.blocks.length > 0
+                      ? m.blocks.length
+                      : existing?.blocks?.length) ||
+                    m.blockCount ||
+                    0,
+                  dimensions:
+                    m.dimensions || existing?.dimensions || { x: 12, y: 12, z: 24 },
+                });
               }
             });
 
@@ -652,6 +724,7 @@ export const useJLStore = create<JLStoreState>()(
               modules: nextModules,
               deletedModuleIds: Array.from(deletedSet),
               selectedModuleId: nextSelected,
+              isSyncingWithSupabase: false,
             };
           });
         } catch (err) {
@@ -672,6 +745,7 @@ export const useJLStore = create<JLStoreState>()(
               modules: filtered,
               deletedModuleIds: Array.from(localDeleted),
               selectedModuleId: nextSelected,
+              isSyncingWithSupabase: false,
             };
           });
         }

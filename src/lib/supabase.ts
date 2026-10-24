@@ -305,38 +305,84 @@ export interface FetchModulesResult {
 
 /**
  * Loads all modules from Supabase (both active and soft-deleted).
+ * Uses fast metadata-only query with pagination to avoid statement timeouts.
  * Returns null if offline or table does not exist.
  */
 export async function fetchModulesFromSupabase(): Promise<FetchModulesResult | null> {
   if (!supabase) return null;
 
   try {
-    const { data, error } = await supabase
-      .from('modules')
-      .select('*')
-      .order('created_at', { ascending: true });
-
-    if (error) {
-      console.warn('[Supabase] Modules table not ready or error:', error.message);
-      return null;
-    }
-
-    if (!data) return { activeModules: [], deletedIds: [] };
-
     const activeModules: JLModule[] = [];
     const deletedIds: string[] = [];
+    const pageSize = 1000;
+    let from = 0;
+    let hasMore = true;
 
-    for (const row of data) {
-      if (row.is_deleted) {
-        deletedIds.push(String(row.id));
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('modules')
+        .select(
+          'id, short_code, name, difficulty, description, spawn_point, finish_point, is_deleted, created_at'
+        )
+        .order('created_at', { ascending: true })
+        .range(from, from + pageSize - 1);
+
+      if (error) {
+        console.warn('[Supabase] Modules table not ready or error:', error.message);
+        if (from === 0) return null;
+        break;
+      }
+
+      if (!data || data.length === 0) {
+        break;
+      }
+
+      for (const row of data) {
+        if (row.is_deleted) {
+          deletedIds.push(String(row.id));
+        } else {
+          activeModules.push(mapDbRowToModule(row));
+        }
+      }
+
+      if (data.length < pageSize) {
+        hasMore = false;
       } else {
-        activeModules.push(mapDbRowToModule(row));
+        from += pageSize;
       }
     }
 
     return { activeModules, deletedIds };
   } catch (err) {
     console.warn('[Supabase] Exception fetching modules:', err);
+    return null;
+  }
+}
+
+/**
+ * Loads a single module with its full 3D voxel blocks array from Supabase by ID.
+ */
+export async function fetchModuleById(id: string): Promise<JLModule | null> {
+  if (!supabase) return null;
+
+  try {
+    const cleanId = id.trim().replace(/^#+/, '');
+    const { data, error } = await supabase
+      .from('modules')
+      .select('*')
+      .or(`id.eq.${cleanId},id.eq.%23${cleanId}`)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('[Supabase] Error fetching module by id:', id, error.message);
+      return null;
+    }
+
+    if (!data) return null;
+    return mapDbRowToModule(data);
+  } catch (err) {
+    console.warn('[Supabase] Exception fetching module by id:', id, err);
     return null;
   }
 }
