@@ -110,6 +110,7 @@ export interface JLStoreState {
 
   // Core Actions
   selectModule: (moduleId: string) => void;
+  addModule: (module: JLModule) => void;
   selectCut: (cutId: string | null) => void;
   setHoveredCut: (cutId: string | null) => void;
   toggleCutLines: () => void;
@@ -227,6 +228,27 @@ export const useJLStore = create<JLStoreState>()(
 
         set({
           selectedModuleId: resolvedId,
+          selectedCutId: null,
+          draftStartBlock: null,
+          draftMidPoints: [],
+          activeDraftMidPointIndex: null,
+          draftEndBlock: null,
+          pickStage: 'START',
+          cameraResetCounter: state.cameraResetCounter + 1,
+        });
+      },
+
+      addModule: (newModule) => {
+        const state = get();
+        const existingIdx = state.modules.findIndex((m) => m.id === newModule.id);
+        const updatedModules =
+          existingIdx >= 0
+            ? state.modules.map((m, idx) => (idx === existingIdx ? newModule : m))
+            : [newModule, ...state.modules];
+
+        set({
+          modules: updatedModules,
+          selectedModuleId: newModule.id,
           selectedCutId: null,
           draftStartBlock: null,
           draftMidPoints: [],

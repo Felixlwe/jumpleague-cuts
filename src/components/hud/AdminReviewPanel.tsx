@@ -13,6 +13,7 @@ import {
   Video,
   Focus,
   X,
+  Upload,
 } from 'lucide-react';
 import { useJLStore } from '@/store/useJLStore';
 import {
@@ -22,6 +23,7 @@ import {
   MOVEMENT_TECH_CONFIG,
 } from '@/constants/jumpleagueConfig';
 import { CutStatus, MovementTech } from '@/types/jumpleague';
+import { parseSchematicFile } from '@/lib/schematicParser';
 
 function parseYouTubeEmbedUrl(url: string): string | null {
   try {
@@ -61,6 +63,33 @@ export const AdminReviewPanel: React.FC = () => {
   const rejectCut = useJLStore((s) => s.rejectCut);
   const deleteCut = useJLStore((s) => s.deleteCut);
   const resetStoreToDefaults = useJLStore((s) => s.resetStoreToDefaults);
+  const addModule = useJLStore((s) => s.addModule);
+  const triggerCameraReset = useJLStore((s) => s.triggerCameraReset);
+
+  const [isAdminUploading, setIsAdminUploading] = useState(false);
+  const [adminUploadMsg, setAdminUploadMsg] = useState<string | null>(null);
+
+  const handleAdminSchematicUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsAdminUploading(true);
+    setAdminUploadMsg(null);
+    try {
+      const parsed = await parseSchematicFile(file);
+      addModule(parsed.module);
+      triggerCameraReset();
+      setAdminUploadMsg(`Modul "${parsed.name}" (${parsed.blockCount} Blöcke) geladen!`);
+      setTimeout(() => setAdminUploadMsg(null), 4000);
+    } catch (err: any) {
+      alert(`Schematic-Upload fehlgeschlagen: ${err.message || err}`);
+    } finally {
+      setIsAdminUploading(false);
+      e.target.value = '';
+    }
+  };
 
   const counts = useMemo(() => {
     return {
@@ -142,6 +171,21 @@ export const AdminReviewPanel: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1.5">
+            <label
+              className="flex cursor-pointer items-center gap-1 rounded-lg border border-purple-500/40 bg-purple-500/15 px-2 py-1 text-[10px] font-semibold text-purple-300 hover:bg-purple-500/25 hover:text-white transition"
+              title="Sponge (.schem) oder MCEdit (.schematic) hochladen"
+            >
+              <Upload className="h-3 w-3 text-purple-400" />
+              <span>{isAdminUploading ? 'Lade...' : '.schem laden'}</span>
+              <input
+                type="file"
+                accept=".schem,.schematic"
+                onChange={handleAdminSchematicUpload}
+                disabled={isAdminUploading}
+                className="hidden"
+              />
+            </label>
+
             <button
               type="button"
               onClick={resetStoreToDefaults}
@@ -162,6 +206,12 @@ export const AdminReviewPanel: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {adminUploadMsg && (
+          <div className="rounded-lg border border-emerald-500/40 bg-emerald-950/80 px-2.5 py-1 text-xs font-semibold text-emerald-300">
+            {adminUploadMsg}
+          </div>
+        )}
 
         {/* Status Tabs */}
         <div className="grid grid-cols-3 gap-1.5">

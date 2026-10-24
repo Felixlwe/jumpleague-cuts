@@ -8,11 +8,15 @@ import {
   RotateCcw,
   Boxes,
   Route,
+  Upload,
+  CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
 import { useJumpLeagueStore } from '@/store/useJumpLeagueStore';
 import { MODULE_DIFFICULTY_CONFIG } from '@/constants/jumpleagueConfig';
 import { sortModulesNumerically } from '@/lib/mockModuleGenerator';
 import { ModuleDifficulty } from '@/types/jumpleague';
+import { parseSchematicFile } from '@/lib/schematicParser';
 
 type TabCategory = 'ALL' | ModuleDifficulty;
 
@@ -37,9 +41,47 @@ export const TopHudBar: React.FC = () => {
   const filters = useJumpLeagueStore((s) => s.filters);
 
   const selectModule = useJumpLeagueStore((s) => s.selectModule);
+  const addModule = useJumpLeagueStore((s) => s.addModule);
   const setActiveMode = useJumpLeagueStore((s) => s.setActiveMode);
   const triggerCameraReset = useJumpLeagueStore((s) => s.triggerCameraReset);
   const updateFilters = useJumpLeagueStore((s) => s.updateFilters);
+
+  const [isUploading, setIsUploading] = React.useState(false);
+  const [uploadFeedback, setUploadFeedback] = React.useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  const handleSchematicUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    setUploadFeedback(null);
+
+    try {
+      const parsed = await parseSchematicFile(file);
+      addModule(parsed.module);
+      triggerCameraReset();
+      setUploadFeedback({
+        type: 'success',
+        message: `Modul "${parsed.name}" (${parsed.blockCount} Blöcke, ${parsed.dimensions.x}x${parsed.dimensions.y}x${parsed.dimensions.z}) erfolgreich geladen!`,
+      });
+      setTimeout(() => setUploadFeedback(null), 5000);
+    } catch (err: any) {
+      console.error('Schematic upload failed:', err);
+      setUploadFeedback({
+        type: 'error',
+        message: `Fehler beim Laden: ${err.message || 'Ungültige Schematic-Datei'}`,
+      });
+      setTimeout(() => setUploadFeedback(null), 7000);
+    } finally {
+      setIsUploading(false);
+      e.target.value = '';
+    }
+  };
 
   const pendingCount = useMemo(
     () => cuts.filter((c) => c.status === 'PENDING').length,
@@ -98,8 +140,29 @@ export const TopHudBar: React.FC = () => {
           })}
         </div>
 
-        {/* Right: Mode Switcher & Camera Overview Reset */}
+        {/* Right: Schematic Upload, Camera Reset & Mode Switcher */}
         <div className="flex items-center gap-2">
+          {/* Schematic (.schem) Upload Button */}
+          <label
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold cursor-pointer transition shadow-lg select-none ${
+              isUploading
+                ? 'border-emerald-500/50 bg-emerald-500/20 text-emerald-300 animate-pulse'
+                : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-400/60 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
+            }`}
+            title="Minecraft Schematic (.schem / .schematic) von deiner Festplatte auswählen und sofort in 3D laden"
+          >
+            <Upload className="h-3.5 w-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">Schematic (.schem) hochladen</span>
+            <span className="sm:hidden">.schem</span>
+            <input
+              type="file"
+              accept=".schem,.schematic"
+              onChange={handleSchematicUpload}
+              disabled={isUploading}
+              className="hidden"
+            />
+          </label>
+
           <button
             type="button"
             onClick={triggerCameraReset}
@@ -218,7 +281,50 @@ export const TopHudBar: React.FC = () => {
             </button>
           );
         })}
+
+        {/* Quick upload tile in module list */}
+        <label
+          className="group relative flex shrink-0 cursor-pointer items-center gap-2 rounded-xl border border-dashed border-emerald-500/40 bg-emerald-500/5 px-3 py-2 text-left text-xs font-semibold text-emerald-400 transition-all duration-200 hover:border-emerald-400 hover:bg-emerald-500/15 hover:text-emerald-300"
+          title="Neue Schematic (.schem) von Festplatte importieren"
+        >
+          <Upload className="h-4 w-4 shrink-0 text-emerald-400 group-hover:scale-110 transition-transform" />
+          <span>+ .schem laden</span>
+          <input
+            type="file"
+            accept=".schem,.schematic"
+            onChange={handleSchematicUpload}
+            disabled={isUploading}
+            className="hidden"
+          />
+        </label>
       </div>
+
+      {/* Floating Upload Notification */}
+      {uploadFeedback && (
+        <div
+          className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-xs font-semibold shadow-2xl border transition-all ${
+            uploadFeedback.type === 'success'
+              ? 'border-emerald-500/50 bg-emerald-950/90 text-emerald-300 shadow-[0_0_25px_rgba(16,185,129,0.35)]'
+              : 'border-red-500/50 bg-red-950/90 text-red-300 shadow-[0_0_25px_rgba(239,68,68,0.35)]'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {uploadFeedback.type === 'success' ? (
+              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
+            )}
+            <span>{uploadFeedback.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setUploadFeedback(null)}
+            className="text-zinc-400 hover:text-white px-1 font-bold"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </header>
   );
 };
