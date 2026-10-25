@@ -11,6 +11,7 @@ import { SubmissionModal } from '@/components/hud/SubmissionModal';
 import { AdminReviewPanel } from '@/components/hud/AdminReviewPanel';
 import { AdminAuthModal } from '@/components/hud/AdminAuthModal';
 import { BottomToolbar } from '@/components/hud/BottomToolbar';
+import { ControlsBar } from '@/components/hud/ControlsBar';
 import { useJLStore } from '@/store/useJLStore';
 import { DIAMOND_BOOTS_DATA_URI } from '@/constants/diamondBootsAsset';
 import { fetchModuleById } from '@/lib/supabase';
@@ -63,8 +64,11 @@ function ClientModuleDetailHud() {
         )}
       </div>
 
-      {/* Bottom Floating Toolbar: Camera Reset, Cut-Lines Toggle, Cut einreichen & Admin-Modus */}
-      <BottomToolbar />
+      {/* Bottom Area: Controls Explanation Bar + Bottom Floating Toolbar */}
+      <div className="flex flex-col items-center gap-2">
+        <ControlsBar />
+        <BottomToolbar />
+      </div>
 
       {/* Admin Security Clearance Password Modal */}
       <AdminAuthModal />
