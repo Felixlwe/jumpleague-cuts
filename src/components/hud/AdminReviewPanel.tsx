@@ -22,18 +22,22 @@ import {
   CUT_DIFFICULTY_CONFIG,
   MOVEMENT_TECH_CONFIG,
 } from '@/constants/jumpleagueConfig';
-import { CutStatus, MovementTech } from '@/types/jumpleague';
+import { useRouter } from 'next/navigation';
+import { CutStatus, MovementTech, Cut } from '@/types/jumpleague';
 import { parseSchematicFile } from '@/lib/schematicParser';
 import { parseYouTubeEmbedUrl } from '@/lib/security';
 
 export const AdminReviewPanel: React.FC = () => {
+  const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<CutStatus>('PENDING');
 
   const activeMode = useJLStore((s) => s.activeMode);
   const cuts = useJLStore((s) => s.cuts);
   const selectedCutId = useJLStore((s) => s.selectedCutId);
+  const selectedModuleId = useJLStore((s) => s.selectedModuleId);
 
   const selectCut = useJLStore((s) => s.selectCut);
+  const selectModule = useJLStore((s) => s.selectModule);
   const setActiveMode = useJLStore((s) => s.setActiveMode);
   const updateCut = useJLStore((s) => s.updateCut);
   const approveCut = useJLStore((s) => s.approveCut);
@@ -101,15 +105,34 @@ export const AdminReviewPanel: React.FC = () => {
     });
   };
 
+  const handleSelectCut = (cut: Cut) => {
+    selectCut(cut.id);
+
+    const targetModClean = (cut.moduleId || '').trim().toLowerCase().replace(/^#+/, '');
+    const currentModClean = (selectedModuleId || '').trim().toLowerCase().replace(/^#+/, '');
+
+    if (targetModClean && targetModClean !== currentModClean) {
+      selectModule(cut.moduleId);
+      router.push(
+        `/modules/${encodeURIComponent(targetModClean)}?cutId=${encodeURIComponent(cut.id)}`
+      );
+    } else {
+      // If already on the same module, re-trigger camera glide to cut
+      const id = cut.id;
+      selectCut(null);
+      setTimeout(() => selectCut(id), 25);
+    }
+  };
+
   const handleApproveSelected = () => {
     if (!selectedCut) return;
     approveCut(selectedCut.id);
-    // Automatically select the next pending cut if available
+    // Automatically select the next pending cut if available and fly to it
     const nextPending = cuts.find(
       (c) => c.status === 'PENDING' && c.id !== selectedCut.id
     );
     if (nextPending) {
-      selectCut(nextPending.id);
+      handleSelectCut(nextPending);
     }
   };
 
@@ -120,15 +143,13 @@ export const AdminReviewPanel: React.FC = () => {
       (c) => c.status === 'PENDING' && c.id !== selectedCut.id
     );
     if (nextPending) {
-      selectCut(nextPending.id);
+      handleSelectCut(nextPending);
     }
   };
 
   const handleRefocusCamera = () => {
     if (!selectedCut) return;
-    const id = selectedCut.id;
-    selectCut(null);
-    setTimeout(() => selectCut(id), 15);
+    handleSelectCut(selectedCut);
   };
 
   return (
@@ -244,21 +265,31 @@ export const AdminReviewPanel: React.FC = () => {
             displayedCuts.map((cut) => {
               const isSelected = cut.id === selectedCutId;
               const diffCfg = CUT_DIFFICULTY_CONFIG[cut.difficulty];
+              const isSameModule =
+                (cut.moduleId || '').trim().toLowerCase().replace(/^#+/, '') ===
+                (selectedModuleId || '').trim().toLowerCase().replace(/^#+/, '');
 
               return (
                 <button
                   key={cut.id}
                   type="button"
-                  onClick={() => selectCut(cut.id)}
+                  onClick={() => handleSelectCut(cut)}
                   className={`flex w-full items-center justify-between gap-2 rounded-xl border p-2.5 text-left transition ${
                     isSelected
-                      ? 'border-purple-400/60 bg-purple-500/15 shadow-lg'
+                      ? 'border-purple-400/60 bg-purple-500/15 shadow-lg ring-1 ring-purple-400/30'
                       : 'border-white/10 bg-zinc-900/60 hover:bg-white/10'
                   }`}
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <span className="rounded bg-white/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white">
+                      <span
+                        className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-bold ${
+                          isSameModule
+                            ? 'bg-purple-500/30 text-purple-200 border border-purple-400/40'
+                            : 'bg-white/15 text-white'
+                        }`}
+                        title={isSameModule ? 'Im aktuell geladenen Modul' : `Gehört zu Modul ${cut.moduleId}`}
+                      >
                         {cut.moduleId}
                       </span>
                       <span
@@ -267,8 +298,8 @@ export const AdminReviewPanel: React.FC = () => {
                       >
                         {diffCfg.shortLabel}
                       </span>
-                      <span className="font-mono text-[10px] text-zinc-400">
-                        • von {cut.submittedBy}
+                      <span className="font-mono text-[10px] text-zinc-400 truncate max-w-[120px]">
+                        • von {cut.submittedBy || 'Anonym'}
                       </span>
                     </div>
                     <div className="mt-0.5 truncate text-xs font-bold text-white">
@@ -292,20 +323,42 @@ export const AdminReviewPanel: React.FC = () => {
       {/* ================================================================= */}
       {selectedCut ? (
         <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
+          {/* Module difference notice banner if cut belongs to another module */}
+          {(selectedCut.moduleId || '').trim().toLowerCase().replace(/^#+/, '') !==
+            (selectedModuleId || '').trim().toLowerCase().replace(/^#+/, '') && (
+            <div className="flex items-center justify-between rounded-xl border border-amber-500/40 bg-amber-500/15 p-2.5 text-xs text-amber-200">
+              <span className="truncate pr-2">
+                Cut gehört zu Modul <strong className="font-mono text-white">{selectedCut.moduleId}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => handleSelectCut(selectedCut)}
+                className="shrink-0 rounded-lg border border-amber-400/50 bg-amber-500/25 px-2.5 py-1 font-mono text-[10px] font-bold text-amber-100 hover:bg-amber-500/40 transition"
+              >
+                Zu {selectedCut.moduleId} wechseln
+              </button>
+            </div>
+          )}
+
           {/* Video Preview Header */}
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-200">
-              <User className="h-3.5 w-3.5 text-purple-400" />
-              <span>Eingereicht von {selectedCut.submittedBy}</span>
+            <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-200 truncate min-w-0">
+              <User className="h-3.5 w-3.5 text-purple-400 shrink-0" />
+              <span className="truncate">Eingereicht von {selectedCut.submittedBy || 'Anonym'}</span>
             </div>
 
             <button
               type="button"
               onClick={handleRefocusCamera}
-              className="flex items-center gap-1 rounded-lg border border-cyan-400/40 bg-cyan-500/15 px-2 py-1 font-mono text-[10px] font-bold text-cyan-300 hover:bg-cyan-500/25 transition"
+              className="flex shrink-0 items-center gap-1 rounded-lg border border-cyan-400/40 bg-cyan-500/15 px-2 py-1 font-mono text-[10px] font-bold text-cyan-300 hover:bg-cyan-500/25 transition"
             >
               <Focus className="h-3 w-3" />
-              <span>3D-Kamera zentrieren</span>
+              <span>
+                {(selectedCut.moduleId || '').trim().toLowerCase().replace(/^#+/, '') !==
+                (selectedModuleId || '').trim().toLowerCase().replace(/^#+/, '')
+                  ? `Zu ${selectedCut.moduleId} fliegen`
+                  : 'Zum Cut fliegen'}
+              </span>
             </button>
           </div>
 

@@ -24,17 +24,40 @@ export const CameraRig: React.FC = () => {
     if (selectedCutId) {
       const cut = cuts.find((c) => c.id === selectedCutId);
       if (cut) {
-        const { cameraPosition: pos, cameraTarget: target } = cut;
-        void controls.setLookAt(
-          pos.x,
-          pos.y,
-          pos.z,
-          target.x,
-          target.y,
-          target.z,
-          true
-        );
-        return;
+        const hasValidCam =
+          cut.cameraPosition &&
+          cut.cameraTarget &&
+          (Math.abs(cut.cameraPosition.x) > 0.01 ||
+            Math.abs(cut.cameraPosition.y) > 0.01 ||
+            Math.abs(cut.cameraPosition.z) > 0.01);
+
+        if (hasValidCam) {
+          const { cameraPosition: pos, cameraTarget: target } = cut;
+          void controls.setLookAt(
+            pos.x,
+            pos.y,
+            pos.z,
+            target.x,
+            target.y,
+            target.z,
+            true
+          );
+          return;
+        } else if (cut.startBlock && cut.endBlock) {
+          const midX = (cut.startBlock.x + cut.endBlock.x) / 2;
+          const midY = (cut.startBlock.y + cut.endBlock.y) / 2;
+          const midZ = (cut.startBlock.z + cut.endBlock.z) / 2;
+          void controls.setLookAt(
+            midX + 4,
+            midY + 3.5,
+            midZ + 4,
+            midX,
+            midY,
+            midZ,
+            true
+          );
+          return;
+        }
       }
     }
   }, [selectedCutId, cuts]);

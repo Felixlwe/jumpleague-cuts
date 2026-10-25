@@ -459,6 +459,11 @@ export const CutTrajectories: React.FC = () => {
         }
       }
 
+      // Selected cut must always be visible in 3D
+      if (cut.id === selectedCutId) {
+        return true;
+      }
+
       return doesCutMatchFilters(cut, filters);
     });
   }, [cuts, selectedModuleId, activeMode, selectedCutId, filters]);

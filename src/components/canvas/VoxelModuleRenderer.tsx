@@ -245,17 +245,32 @@ const MinecraftSpectatorControls: React.FC = () => {
 
     if (selectedCutId) {
       const cut = cuts.find((c) => c.id === selectedCutId);
-      if (cut && cut.cameraPosition && cut.cameraTarget) {
-        targetPos = new THREE.Vector3(
-          cut.cameraPosition.x,
-          cut.cameraPosition.y,
-          cut.cameraPosition.z
-        );
-        targetLookAt = new THREE.Vector3(
-          cut.cameraTarget.x,
-          cut.cameraTarget.y,
-          cut.cameraTarget.z
-        );
+      if (cut) {
+        const hasValidCam =
+          cut.cameraPosition &&
+          cut.cameraTarget &&
+          (Math.abs(cut.cameraPosition.x) > 0.01 ||
+            Math.abs(cut.cameraPosition.y) > 0.01 ||
+            Math.abs(cut.cameraPosition.z) > 0.01);
+
+        if (hasValidCam) {
+          targetPos = new THREE.Vector3(
+            cut.cameraPosition.x,
+            cut.cameraPosition.y,
+            cut.cameraPosition.z
+          );
+          targetLookAt = new THREE.Vector3(
+            cut.cameraTarget.x,
+            cut.cameraTarget.y,
+            cut.cameraTarget.z
+          );
+        } else if (cut.startBlock && cut.endBlock) {
+          const midX = (cut.startBlock.x + cut.endBlock.x) / 2;
+          const midY = (cut.startBlock.y + cut.endBlock.y) / 2;
+          const midZ = (cut.startBlock.z + cut.endBlock.z) / 2;
+          targetLookAt = new THREE.Vector3(midX, midY, midZ);
+          targetPos = new THREE.Vector3(midX + 4, midY + 3.5, midZ + 4);
+        }
       }
     }
 
