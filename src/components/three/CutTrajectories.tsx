@@ -38,8 +38,36 @@ function getBlockSurfaceY(
         b.position.y === coord.y &&
         b.position.z === coord.z
     );
-    if (found?.type === 'OAK_SLAB') {
-      return coord.y + 0.05;
+    if (found) {
+      const type = (found.type || '').toLowerCase();
+      if (type.includes('carpet') || type === 'snow' || type.includes('snow_layer')) {
+        return coord.y - 0.42;
+      }
+      if (type.includes('slab')) {
+        const slabType =
+          found.slabType ||
+          found.properties?.type ||
+          found.state?.type ||
+          'bottom';
+        if (slabType === 'bottom') {
+          return coord.y + 0.05;
+        }
+      }
+      if (type.includes('trapdoor')) {
+        const half = found.half || found.properties?.half || found.state?.half;
+        if (half !== 'top') {
+          return coord.y - 0.35;
+        }
+      }
+      if (type.includes('daylight_detector')) {
+        return coord.y - 0.12;
+      }
+      if (type.includes('bed')) {
+        return coord.y + 0.1;
+      }
+      if (type.includes('chest')) {
+        return coord.y + 0.42;
+      }
     }
   }
   return coord.y + 0.55;

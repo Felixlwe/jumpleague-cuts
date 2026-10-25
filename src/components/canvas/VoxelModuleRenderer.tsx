@@ -597,6 +597,242 @@ const MinecraftSpectatorControls: React.FC = () => {
   return null;
 };
 
+export interface BlockHighlightBounds {
+  size: [number, number, number];
+  offset: [number, number, number];
+}
+
+/**
+ * Calculates adaptive 3D outline box dimensions & center offset based on Minecraft block geometry.
+ * Adapts to fences, walls, slabs, trapdoors, ladders, carpets, iron bars, glass panes, rods, etc.
+ */
+export function getBlockHighlightBounds(
+  block?: VoxelBlock | null,
+  blockMap?: Map<string, VoxelBlock>
+): BlockHighlightBounds {
+  if (!block) {
+    return { size: [1.04, 1.04, 1.04], offset: [0, 0, 0] };
+  }
+
+  const rawType = (block.type || '').toLowerCase().replace(/^minecraft:/, '');
+  const { x, y, z } = block.position;
+
+  // Helper to check neighbor connection for fences/walls/bars/panes
+  const canConnect = (neighbor?: VoxelBlock): boolean => {
+    if (!neighbor) return false;
+    const nType = (neighbor.type || '').toLowerCase().replace(/^minecraft:/, '');
+    if (
+      nType.includes('air') ||
+      nType.includes('water') ||
+      nType.includes('lava')
+    ) {
+      return false;
+    }
+    return true;
+  };
+
+  // 1. Fences (e.g. oak_fence, nether_brick_fence, fence_gate)
+  if (rawType.includes('fence')) {
+    const hasNorth =
+      block.properties?.north === 'true' ||
+      block.state?.north === 'true' ||
+      canConnect(blockMap?.get(`${x},${y},${z - 1}`));
+    const hasSouth =
+      block.properties?.south === 'true' ||
+      block.state?.south === 'true' ||
+      canConnect(blockMap?.get(`${x},${y},${z + 1}`));
+    const hasWest =
+      block.properties?.west === 'true' ||
+      block.state?.west === 'true' ||
+      canConnect(blockMap?.get(`${x - 1},${y},${z}`));
+    const hasEast =
+      block.properties?.east === 'true' ||
+      block.state?.east === 'true' ||
+      canConnect(blockMap?.get(`${x + 1},${y},${z}`));
+
+    const minX = hasWest ? -0.52 : -0.19;
+    const maxX = hasEast ? 0.52 : 0.19;
+    const minZ = hasNorth ? -0.52 : -0.19;
+    const maxZ = hasSouth ? 0.52 : 0.19;
+
+    return {
+      size: [maxX - minX, 1.04, maxZ - minZ],
+      offset: [(minX + maxX) / 2, 0, (minZ + maxZ) / 2],
+    };
+  }
+
+  // 2. Walls (e.g. cobblestone_wall, diorite_wall)
+  if (rawType.includes('wall') && !rawType.includes('sign')) {
+    const hasNorth = canConnect(blockMap?.get(`${x},${y},${z - 1}`));
+    const hasSouth = canConnect(blockMap?.get(`${x},${y},${z + 1}`));
+    const hasWest = canConnect(blockMap?.get(`${x - 1},${y},${z}`));
+    const hasEast = canConnect(blockMap?.get(`${x + 1},${y},${z}`));
+
+    const minX = hasWest ? -0.52 : -0.24;
+    const maxX = hasEast ? 0.52 : 0.24;
+    const minZ = hasNorth ? -0.52 : -0.24;
+    const maxZ = hasSouth ? 0.52 : 0.24;
+
+    return {
+      size: [maxX - minX, 1.04, maxZ - minZ],
+      offset: [(minX + maxX) / 2, 0, (minZ + maxZ) / 2],
+    };
+  }
+
+  // 3. Iron Bars & Glass Panes
+  if (rawType.includes('bars') || rawType.includes('pane')) {
+    const hasNorth = canConnect(blockMap?.get(`${x},${y},${z - 1}`));
+    const hasSouth = canConnect(blockMap?.get(`${x},${y},${z + 1}`));
+    const hasWest = canConnect(blockMap?.get(`${x - 1},${y},${z}`));
+    const hasEast = canConnect(blockMap?.get(`${x + 1},${y},${z}`));
+
+    const minX = hasWest ? -0.52 : -0.13;
+    const maxX = hasEast ? 0.52 : 0.13;
+    const minZ = hasNorth ? -0.52 : -0.13;
+    const maxZ = hasSouth ? 0.52 : 0.13;
+
+    return {
+      size: [maxX - minX, 1.04, maxZ - minZ],
+      offset: [(minX + maxX) / 2, 0, (minZ + maxZ) / 2],
+    };
+  }
+
+  // 4. Slabs (bottom vs top vs double)
+  if (rawType.includes('slab')) {
+    const slabType =
+      block.slabType ||
+      block.properties?.type ||
+      block.state?.type ||
+      'bottom';
+
+    if (slabType === 'top') {
+      return { size: [1.04, 0.52, 1.04], offset: [0, 0.25, 0] };
+    }
+    if (slabType === 'double') {
+      return { size: [1.04, 1.04, 1.04], offset: [0, 0, 0] };
+    }
+    return { size: [1.04, 0.52, 1.04], offset: [0, -0.25, 0] };
+  }
+
+  // 5. Carpets & Snow layers
+  if (rawType.includes('carpet') || rawType === 'snow' || rawType.includes('snow_layer')) {
+    return { size: [1.04, 0.12, 1.04], offset: [0, -0.46, 0] };
+  }
+
+  // 6. Trapdoors
+  if (rawType.includes('trapdoor')) {
+    const isOpen =
+      block.open ||
+      block.properties?.open === 'true' ||
+      block.state?.open === 'true';
+    const facing =
+      block.facing ||
+      block.properties?.facing ||
+      block.state?.facing ||
+      'north';
+    const half =
+      block.half ||
+      block.properties?.half ||
+      block.state?.half ||
+      'bottom';
+
+    if (isOpen) {
+      if (facing === 'north') return { size: [1.04, 1.04, 0.22], offset: [0, 0, -0.41] };
+      if (facing === 'south') return { size: [1.04, 1.04, 0.22], offset: [0, 0, 0.41] };
+      if (facing === 'west') return { size: [0.22, 1.04, 1.04], offset: [-0.41, 0, 0] };
+      return { size: [0.22, 1.04, 1.04], offset: [0.41, 0, 0] };
+    }
+
+    if (half === 'top') {
+      return { size: [1.04, 0.22, 1.04], offset: [0, 0.41, 0] };
+    }
+    return { size: [1.04, 0.22, 1.04], offset: [0, -0.41, 0] };
+  }
+
+  // 7. Ladders
+  if (rawType.includes('ladder')) {
+    const facing =
+      block.facing ||
+      block.properties?.facing ||
+      block.state?.facing ||
+      'north';
+    if (facing === 'north') return { size: [0.96, 1.04, 0.18], offset: [0, 0, -0.42] };
+    if (facing === 'south') return { size: [0.96, 1.04, 0.18], offset: [0, 0, 0.42] };
+    if (facing === 'west') return { size: [0.18, 1.04, 0.96], offset: [-0.42, 0, 0] };
+    if (facing === 'east') return { size: [0.18, 1.04, 0.96], offset: [0.42, 0, 0] };
+    return { size: [0.96, 1.04, 0.22], offset: [0, 0, 0] };
+  }
+
+  // 8. Rods (End Rod, Lightning Rod)
+  if (rawType.includes('rod')) {
+    return { size: [0.28, 1.04, 0.28], offset: [0, 0, 0] };
+  }
+
+  // 9. Chains
+  if (rawType.includes('chain')) {
+    return { size: [0.26, 1.04, 0.26], offset: [0, 0, 0] };
+  }
+
+  // 10. Lanterns
+  if (rawType.includes('lantern')) {
+    const hanging =
+      block.properties?.hanging === 'true' ||
+      block.state?.hanging === 'true';
+    return {
+      size: [0.48, 0.68, 0.48],
+      offset: [0, hanging ? 0.16 : -0.16, 0],
+    };
+  }
+
+  // 11. Chests
+  if (rawType.includes('chest')) {
+    return { size: [0.92, 0.92, 0.92], offset: [0, -0.05, 0] };
+  }
+
+  // 12. Daylight Detectors
+  if (rawType.includes('daylight_detector')) {
+    return { size: [1.04, 0.42, 1.04], offset: [0, -0.30, 0] };
+  }
+
+  // 13. Beds
+  if (rawType.includes('bed')) {
+    return { size: [1.04, 0.60, 1.04], offset: [0, -0.22, 0] };
+  }
+
+  // 14. Anvils
+  if (rawType.includes('anvil')) {
+    return { size: [0.80, 1.02, 0.88], offset: [0, 0, 0] };
+  }
+
+  // 15. Cactus
+  if (rawType.includes('cactus')) {
+    return { size: [0.92, 1.04, 0.92], offset: [0, 0, 0] };
+  }
+
+  // 16. Flower Pots
+  if (rawType.includes('pot')) {
+    return { size: [0.48, 0.48, 0.48], offset: [0, -0.28, 0] };
+  }
+
+  // 17. Pressure Plates
+  if (rawType.includes('pressure_plate')) {
+    return { size: [0.86, 0.10, 0.86], offset: [0, -0.46, 0] };
+  }
+
+  // 18. Heads / Skulls
+  if (rawType.includes('head') || rawType.includes('skull')) {
+    return { size: [0.58, 0.58, 0.58], offset: [0, -0.22, 0] };
+  }
+
+  // 19. Torches / Candles
+  if (rawType.includes('torch') || rawType.includes('candle')) {
+    return { size: [0.26, 0.70, 0.26], offset: [0, -0.15, 0] };
+  }
+
+  // 20. Default standard full cube
+  return { size: [1.04, 1.04, 1.04], offset: [0, 0, 0] };
+}
+
 /**
  * Main 3D Voxel Module Renderer:
  * Combines high-performance chunk-merged mesh rendering with Minecraft Spectator controls.
@@ -942,148 +1178,207 @@ export const VoxelModuleRenderer: React.FC = () => {
       {!isSubmitMode && selectedCut && (
         <group>
           {/* 1. Start Block (Green Box Outline) */}
-          <group
-            position={[
-              selectedCut.startBlock.x,
-              selectedCut.startBlock.y,
-              selectedCut.startBlock.z,
-            ]}
-          >
-            <mesh>
-              <boxGeometry args={[1.04, 1.04, 1.04]} />
-              <meshBasicMaterial
-                color="#10b981"
-                transparent
-                opacity={0.16}
-                depthWrite={false}
-              />
-              <Edges scale={1.02} threshold={1} color="#22c55e" />
-            </mesh>
-            <WorldHtml position={[0, 0.85, 0]} center>
-              <div className="pointer-events-none whitespace-nowrap rounded-full bg-emerald-500/90 px-2 py-0.5 text-[9px] font-extrabold text-zinc-950 shadow-md">
-                START
-              </div>
-            </WorldHtml>
-          </group>
-
-          {/* 2. Mid Points (Orange Box Outlines) */}
-          {selectedCut.midPoints &&
-            selectedCut.midPoints.map((mid, idx) => (
-              <group key={`sel-mid-${idx}`} position={[mid.x, mid.y, mid.z]}>
+          {(() => {
+            const b = blockMap.get(`${selectedCut.startBlock.x},${selectedCut.startBlock.y},${selectedCut.startBlock.z}`);
+            const bounds = getBlockHighlightBounds(b, blockMap);
+            return (
+              <group
+                position={[
+                  selectedCut.startBlock.x + bounds.offset[0],
+                  selectedCut.startBlock.y + bounds.offset[1],
+                  selectedCut.startBlock.z + bounds.offset[2],
+                ]}
+              >
                 <mesh>
-                  <boxGeometry args={[1.04, 1.04, 1.04]} />
+                  <boxGeometry args={bounds.size} />
                   <meshBasicMaterial
-                    color="#f97316"
+                    color="#10b981"
                     transparent
                     opacity={0.16}
                     depthWrite={false}
                   />
-                  <Edges scale={1.02} threshold={1} color="#f97316" />
+                  <Edges scale={1.02} threshold={1} color="#22c55e" />
                 </mesh>
-                <WorldHtml position={[0, 0.85, 0]} center>
-                  <div className="pointer-events-none whitespace-nowrap rounded-full bg-orange-500/90 px-2 py-0.5 text-[9px] font-extrabold text-white shadow-md">
-                    MID {selectedCut.midPoints!.length > 1 ? idx + 1 : ''}
+                <WorldHtml position={[0, bounds.size[1] / 2 + 0.35, 0]} center>
+                  <div className="pointer-events-none whitespace-nowrap rounded-full bg-emerald-500/90 px-2 py-0.5 text-[9px] font-extrabold text-zinc-950 shadow-md">
+                    START
                   </div>
                 </WorldHtml>
               </group>
-            ))}
+            );
+          })()}
+
+          {/* 2. Mid Points (Orange Box Outlines) */}
+          {selectedCut.midPoints &&
+            selectedCut.midPoints.map((mid, idx) => {
+              const b = blockMap.get(`${Math.round(mid.x)},${Math.round(mid.y)},${Math.round(mid.z)}`);
+              const bounds = b
+                ? getBlockHighlightBounds(b, blockMap)
+                : { size: [0.6, 0.6, 0.6] as [number, number, number], offset: [0, 0, 0] as [number, number, number] };
+              return (
+                <group
+                  key={`sel-mid-${idx}`}
+                  position={[
+                    mid.x + bounds.offset[0],
+                    mid.y + bounds.offset[1],
+                    mid.z + bounds.offset[2],
+                  ]}
+                >
+                  <mesh>
+                    <boxGeometry args={bounds.size} />
+                    <meshBasicMaterial
+                      color="#f97316"
+                      transparent
+                      opacity={0.16}
+                      depthWrite={false}
+                    />
+                    <Edges scale={1.02} threshold={1} color="#f97316" />
+                  </mesh>
+                  <WorldHtml position={[0, bounds.size[1] / 2 + 0.35, 0]} center>
+                    <div className="pointer-events-none whitespace-nowrap rounded-full bg-orange-500/90 px-2 py-0.5 text-[9px] font-extrabold text-white shadow-md">
+                      MID {selectedCut.midPoints!.length > 1 ? idx + 1 : ''}
+                    </div>
+                  </WorldHtml>
+                </group>
+              );
+            })}
 
           {/* 3. Target Block (Cyan Box Outline) */}
+          {(() => {
+            const b = blockMap.get(`${selectedCut.endBlock.x},${selectedCut.endBlock.y},${selectedCut.endBlock.z}`);
+            const bounds = getBlockHighlightBounds(b, blockMap);
+            return (
+              <group
+                position={[
+                  selectedCut.endBlock.x + bounds.offset[0],
+                  selectedCut.endBlock.y + bounds.offset[1],
+                  selectedCut.endBlock.z + bounds.offset[2],
+                ]}
+              >
+                <mesh>
+                  <boxGeometry args={bounds.size} />
+                  <meshBasicMaterial
+                    color="#06b6d4"
+                    transparent
+                    opacity={0.16}
+                    depthWrite={false}
+                  />
+                  <Edges scale={1.02} threshold={1} color="#22d3ee" />
+                </mesh>
+                <WorldHtml position={[0, bounds.size[1] / 2 + 0.35, 0]} center>
+                  <div className="pointer-events-none whitespace-nowrap rounded-full bg-cyan-500/90 px-2 py-0.5 text-[9px] font-extrabold text-zinc-950 shadow-md">
+                    ZIEL
+                  </div>
+                </WorldHtml>
+              </group>
+            );
+          })()}
+        </group>
+      )}
+
+      {/* Submit Mode: Hover Wireframe Box & Tooltip (Dynamically adapted to block shape/size!) */}
+      {isSubmitMode && hoveredBlock && (() => {
+        const b = blockMap.get(`${hoveredBlock.x},${hoveredBlock.y},${hoveredBlock.z}`);
+        const bounds = getBlockHighlightBounds(b, blockMap);
+        return (
           <group
             position={[
-              selectedCut.endBlock.x,
-              selectedCut.endBlock.y,
-              selectedCut.endBlock.z,
+              hoveredBlock.x + bounds.offset[0],
+              hoveredBlock.y + bounds.offset[1],
+              hoveredBlock.z + bounds.offset[2],
             ]}
           >
             <mesh>
-              <boxGeometry args={[1.04, 1.04, 1.04]} />
+              <boxGeometry args={bounds.size} />
               <meshBasicMaterial
                 color="#06b6d4"
                 transparent
-                opacity={0.16}
+                opacity={0.18}
                 depthWrite={false}
               />
               <Edges scale={1.02} threshold={1} color="#22d3ee" />
             </mesh>
-            <WorldHtml position={[0, 0.85, 0]} center>
-              <div className="pointer-events-none whitespace-nowrap rounded-full bg-cyan-500/90 px-2 py-0.5 text-[9px] font-extrabold text-zinc-950 shadow-md">
-                ZIEL
+            <WorldHtml position={[0, bounds.size[1] / 2 + 0.45, 0]} center>
+              <div className="pointer-events-none whitespace-nowrap rounded-md border border-cyan-400/50 bg-zinc-950/90 px-2 py-0.5 font-mono text-[10px] text-cyan-300 shadow-lg">
+                {hoveredBlockLabel} ({hoveredBlock.x}, {hoveredBlock.y},{' '}
+                {hoveredBlock.z})
               </div>
             </WorldHtml>
           </group>
-        </group>
-      )}
-
-      {/* Submit Mode: Hover Wireframe Box & Tooltip (Only rendered for the currently hovered block!) */}
-      {isSubmitMode && hoveredBlock && (
-        <group position={[hoveredBlock.x, hoveredBlock.y, hoveredBlock.z]}>
-          <mesh>
-            <boxGeometry args={[1.02, 1.02, 1.02]} />
-            <meshBasicMaterial
-              color="#06b6d4"
-              transparent
-              opacity={0.18}
-              depthWrite={false}
-            />
-            <Edges scale={1.02} threshold={1} color="#22d3ee" />
-          </mesh>
-          <WorldHtml position={[0, 0.95, 0]} center>
-            <div className="pointer-events-none whitespace-nowrap rounded-md border border-cyan-400/50 bg-zinc-950/90 px-2 py-0.5 font-mono text-[10px] text-cyan-300 shadow-lg">
-              {hoveredBlockLabel} ({hoveredBlock.x}, {hoveredBlock.y},{' '}
-              {hoveredBlock.z})
-            </div>
-          </WorldHtml>
-        </group>
-      )}
+        );
+      })()}
 
       {/* Submit Mode: Draft Start Marker */}
-      {isSubmitMode && draftStartBlock && (
-        <group
-          position={[
-            draftStartBlock.x,
-            draftStartBlock.y,
-            draftStartBlock.z,
-          ]}
-        >
-          <mesh>
-            <boxGeometry args={[1.08, 1.08, 1.08]} />
-            <meshBasicMaterial
-              color="#10b981"
-              transparent
-              opacity={0.24}
-              depthWrite={false}
-            />
-            <Edges scale={1.02} threshold={1} color="#34d399" />
-          </mesh>
-          <WorldHtml position={[0, 1.05, 0]} center>
-            <div className="pointer-events-none whitespace-nowrap rounded-full bg-emerald-500/90 px-2 py-0.5 text-[10px] font-bold tracking-wider text-zinc-950 shadow-lg">
-              START ({draftStartBlock.x},{draftStartBlock.y},{draftStartBlock.z})
-            </div>
-          </WorldHtml>
-        </group>
-      )}
+      {isSubmitMode && draftStartBlock && (() => {
+        const b = blockMap.get(`${draftStartBlock.x},${draftStartBlock.y},${draftStartBlock.z}`);
+        const bounds = getBlockHighlightBounds(b, blockMap);
+        const markerSize: [number, number, number] = [
+          bounds.size[0] + 0.04,
+          bounds.size[1] + 0.04,
+          bounds.size[2] + 0.04,
+        ];
+        return (
+          <group
+            position={[
+              draftStartBlock.x + bounds.offset[0],
+              draftStartBlock.y + bounds.offset[1],
+              draftStartBlock.z + bounds.offset[2],
+            ]}
+          >
+            <mesh>
+              <boxGeometry args={markerSize} />
+              <meshBasicMaterial
+                color="#10b981"
+                transparent
+                opacity={0.24}
+                depthWrite={false}
+              />
+              <Edges scale={1.02} threshold={1} color="#34d399" />
+            </mesh>
+            <WorldHtml position={[0, markerSize[1] / 2 + 0.55, 0]} center>
+              <div className="pointer-events-none whitespace-nowrap rounded-full bg-emerald-500/90 px-2 py-0.5 text-[10px] font-bold tracking-wider text-zinc-950 shadow-lg">
+                START ({draftStartBlock.x},{draftStartBlock.y},{draftStartBlock.z})
+              </div>
+            </WorldHtml>
+          </group>
+        );
+      })()}
 
       {/* Submit Mode: Draft End Marker */}
-      {isSubmitMode && draftEndBlock && (
-        <group position={[draftEndBlock.x, draftEndBlock.y, draftEndBlock.z]}>
-          <mesh>
-            <boxGeometry args={[1.08, 1.08, 1.08]} />
-            <meshBasicMaterial
-              color="#a855f7"
-              transparent
-              opacity={0.24}
-              depthWrite={false}
-            />
-            <Edges scale={1.02} threshold={1} color="#c084fc" />
-          </mesh>
-          <WorldHtml position={[0, 1.05, 0]} center>
-            <div className="pointer-events-none whitespace-nowrap rounded-full bg-purple-500/90 px-2 py-0.5 text-[10px] font-bold tracking-wider text-white shadow-lg">
-              ZIEL ({draftEndBlock.x},{draftEndBlock.y},{draftEndBlock.z})
-            </div>
-          </WorldHtml>
-        </group>
-      )}
+      {isSubmitMode && draftEndBlock && (() => {
+        const b = blockMap.get(`${draftEndBlock.x},${draftEndBlock.y},${draftEndBlock.z}`);
+        const bounds = getBlockHighlightBounds(b, blockMap);
+        const markerSize: [number, number, number] = [
+          bounds.size[0] + 0.04,
+          bounds.size[1] + 0.04,
+          bounds.size[2] + 0.04,
+        ];
+        return (
+          <group
+            position={[
+              draftEndBlock.x + bounds.offset[0],
+              draftEndBlock.y + bounds.offset[1],
+              draftEndBlock.z + bounds.offset[2],
+            ]}
+          >
+            <mesh>
+              <boxGeometry args={markerSize} />
+              <meshBasicMaterial
+                color="#a855f7"
+                transparent
+                opacity={0.24}
+                depthWrite={false}
+              />
+              <Edges scale={1.02} threshold={1} color="#c084fc" />
+            </mesh>
+            <WorldHtml position={[0, markerSize[1] / 2 + 0.55, 0]} center>
+              <div className="pointer-events-none whitespace-nowrap rounded-full bg-purple-500/90 px-2 py-0.5 text-[10px] font-bold tracking-wider text-white shadow-lg">
+                ZIEL ({draftEndBlock.x},{draftEndBlock.y},{draftEndBlock.z})
+              </div>
+            </WorldHtml>
+          </group>
+        );
+      })()}
 
       {/* Interactive Draggable Mid-Point Waypoints in Submit Mode */}
       {isSubmitMode &&
