@@ -1,13 +1,12 @@
 import React, { Suspense } from 'react';
 import { ModuleDetailClient } from '@/components/module-detail/ModuleDetailClient';
-import { INITIAL_MODULES } from '@/lib/mockModuleGenerator';
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
 export function generateStaticParams() {
-  return INITIAL_MODULES.map((m) => ({ id: m.id }));
+  return [{ id: 'E1' }];
 }
 
 async function ModuleDetailContent({

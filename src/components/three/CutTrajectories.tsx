@@ -2,23 +2,31 @@
 
 import React, { useMemo } from 'react';
 import * as THREE from 'three';
-import { CatmullRomLine } from '@react-three/drei';
 import { ThreeEvent } from '@react-three/fiber';
-import { Cut, Vector3D, VoxelBlock } from '@/types/jumpleague';
+import { Cut, CutDifficulty, Vector3D, VoxelBlock } from '@/types/jumpleague';
 import { useJLStore, doesCutMatchFilters } from '@/store/useJLStore';
-import {
-  CUT_DIFFICULTY_CONFIG,
-  getCutDifficultyConfig,
-} from '@/constants/jumpleagueConfig';
+import { getCutDifficultyConfig } from '@/constants/jumpleagueConfig';
 import { WorldHtml } from './WorldHtml';
 
+export interface CurveSegment {
+  curve: THREE.QuadraticBezierCurve3;
+  controlPoint: THREE.Vector3;
+  startPoint: THREE.Vector3;
+  endPoint: THREE.Vector3;
+}
+
 export interface ComputedTrajectory {
-  points: [number, number, number][];
+  segments: CurveSegment[];
   apex: [number, number, number];
   startSurface: [number, number, number];
   endSurface: [number, number, number];
+  lastTangent: THREE.Vector3;
+  lastPoint: THREE.Vector3;
 }
 
+/**
+ * Calculates surface elevation for a block coordinate (half a block above center, or slab height).
+ */
 function getBlockSurfaceY(
   coord: Vector3D,
   moduleBlocks?: VoxelBlock[]
@@ -31,12 +39,46 @@ function getBlockSurfaceY(
         b.position.z === coord.z
     );
     if (found?.type === 'OAK_SLAB') {
-      return coord.y + 0.04;
+      return coord.y + 0.05;
     }
   }
-  return coord.y + 0.54;
+  return coord.y + 0.55;
 }
 
+/**
+ * Creates a single parabolic jump curve between two points using THREE.QuadraticBezierCurve3.
+ * apexY = Math.max(A.y, B.y) + Math.min(2.8, Math.max(1.25, horizontalDist * 0.35))
+ */
+function createQuadraticSegment(
+  A: THREE.Vector3,
+  B: THREE.Vector3
+): CurveSegment {
+  const dx = B.x - A.x;
+  const dz = B.z - A.z;
+  const horizontalDist = Math.sqrt(dx * dx + dz * dz);
+  const apexY =
+    Math.max(A.y, B.y) + Math.min(2.8, Math.max(1.25, horizontalDist * 0.35));
+
+  const controlPoint = new THREE.Vector3(
+    (A.x + B.x) / 2,
+    apexY,
+    (A.z + B.z) / 2
+  );
+
+  const curve = new THREE.QuadraticBezierCurve3(A, controlPoint, B);
+
+  return {
+    curve,
+    controlPoint,
+    startPoint: A,
+    endPoint: B,
+  };
+}
+
+/**
+ * Computes curved 3D jump parabolas for JumpLeague cuts.
+ * If midPoints exist, splits the jump into realistic multi-segment arcs (Start -> Mid -> End).
+ */
 export function computeJumpTrajectory(
   startBlock: Vector3D,
   endBlock: Vector3D,
@@ -54,66 +96,67 @@ export function computeJumpTrajectory(
     endBlock.z,
   ];
 
-  const dx = endSurface[0] - startSurface[0];
-  const dz = endSurface[2] - startSurface[2];
-  const horizontalDist = Math.sqrt(dx * dx + dz * dz);
-
-  const controlVectors: THREE.Vector3[] = [
-    new THREE.Vector3(...startSurface),
-  ];
+  const waypoints: THREE.Vector3[] = [new THREE.Vector3(...startSurface)];
 
   if (midPoints && midPoints.length > 0) {
     midPoints.forEach((pt) => {
-      controlVectors.push(new THREE.Vector3(pt.x, pt.y, pt.z));
+      waypoints.push(
+        new THREE.Vector3(pt.x, getBlockSurfaceY(pt, moduleBlocks), pt.z)
+      );
     });
-  } else {
-    // Realistic Minecraft jump parabola (1.25m to 2.2m arc height)
-    const arcBoost = Math.min(2.25, Math.max(1.3, horizontalDist * 0.32));
-    const maxY = Math.max(startSurface[1], endSurface[1]);
-
-    const quarterPoint = new THREE.Vector3(
-      startSurface[0] + dx * 0.25,
-      THREE.MathUtils.lerp(startSurface[1], maxY + arcBoost, 0.72),
-      startSurface[2] + dz * 0.25
-    );
-    const midApex = new THREE.Vector3(
-      startSurface[0] + dx * 0.5,
-      maxY + arcBoost,
-      startSurface[2] + dz * 0.5
-    );
-    const threeQuarterPoint = new THREE.Vector3(
-      startSurface[0] + dx * 0.75,
-      THREE.MathUtils.lerp(endSurface[1], maxY + arcBoost, 0.72),
-      startSurface[2] + dz * 0.75
-    );
-
-    controlVectors.push(quarterPoint, midApex, threeQuarterPoint);
   }
 
-  controlVectors.push(new THREE.Vector3(...endSurface));
+  waypoints.push(new THREE.Vector3(...endSurface));
 
-  // Sample curve to locate exact highest point (apex) for the <Html> badge
-  const curve = new THREE.CatmullRomCurve3(
-    controlVectors,
-    false,
-    'centripetal',
-    0.5
-  );
-  const sampledPoints = curve.getPoints(48);
+  const segments: CurveSegment[] = [];
+  let highestY = -Infinity;
+  let highestPoint = waypoints[0];
 
-  let highestPt = sampledPoints[0];
-  for (const pt of sampledPoints) {
-    if (pt.y > highestPt.y) {
-      highestPt = pt;
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const seg = createQuadraticSegment(waypoints[i], waypoints[i + 1]);
+    segments.push(seg);
+
+    // Sample points along this segment to find apex for the HUD pill
+    const pts = seg.curve.getPoints(16);
+    for (const p of pts) {
+      if (p.y > highestY) {
+        highestY = p.y;
+        highestPoint = p;
+      }
     }
   }
 
+  const lastCurve = segments[segments.length - 1].curve;
+  const lastTangent = lastCurve.getTangent(0.95);
+  const lastPoint = lastCurve.getPoint(0.95);
+
   return {
-    points: sampledPoints.map((v) => [v.x, v.y, v.z]),
-    apex: [highestPt.x, highestPt.y + 0.24, highestPt.z],
+    segments,
+    apex: [highestPoint.x, highestPoint.y + 0.28, highestPoint.z],
     startSurface,
     endSurface,
+    lastTangent,
+    lastPoint,
   };
+}
+
+/**
+ * Determines trajectory color based on cut difficulty and selection state.
+ */
+function getTrajectoryColor(difficulty: CutDifficulty, isSelected: boolean): string {
+  if (isSelected) return '#06b6d4'; // Cyan when selected
+  switch (difficulty) {
+    case 'SAFE':
+      return '#22c55e'; // Green for Easy / Safe
+    case 'MEDIUM':
+      return '#eab308'; // Yellow for Medium
+    case 'HEAVY':
+      return '#f97316'; // Orange / Red for Heavy
+    case 'PIXEL_PERFECT':
+      return '#ef4444'; // Red for Pixel Perfect / Expert
+    default:
+      return '#eab308';
+  }
 }
 
 interface SingleTrajectoryProps {
@@ -137,35 +180,42 @@ const SingleCutTrajectory: React.FC<SingleTrajectoryProps> = ({
 }) => {
   const diffConfig = getCutDifficultyConfig(cut.difficulty);
 
-  const { points, apex, startSurface, endSurface } = useMemo(
-    () =>
-      computeJumpTrajectory(
-        cut.startBlock,
-        cut.endBlock,
-        cut.midPoints,
-        moduleBlocks
-      ),
-    [cut.startBlock, cut.endBlock, cut.midPoints, moduleBlocks]
-  );
+  const { segments, apex, startSurface, endSurface, lastTangent, lastPoint } =
+    useMemo(
+      () =>
+        computeJumpTrajectory(
+          cut.startBlock,
+          cut.endBlock,
+          cut.midPoints,
+          moduleBlocks
+        ),
+      [cut.startBlock, cut.endBlock, cut.midPoints, moduleBlocks]
+    );
 
   const isHighlighted = isSelected || isHovered;
+  const color = useMemo(
+    () => getTrajectoryColor(cut.difficulty, isSelected),
+    [cut.difficulty, isSelected]
+  );
 
-  // Dim non-selected trajectories when a cut is selected so the active parabola stands out clearly
+  // Dim non-selected trajectories when another cut is selected
   const lineOpacity = isSelected
-    ? 1.0
+    ? 0.95
     : isHovered
-      ? 0.95
+      ? 0.92
       : hasActiveSelection
-        ? 0.2
-        : 0.86;
+        ? 0.22
+        : 0.85;
 
-  const lineWidth = isSelected
-    ? 5.5
-    : isHovered
-      ? 4.2
-      : hasActiveSelection
-        ? 1.8
-        : 3.0;
+  const tubeRadius = isSelected ? 0.088 : isHovered ? 0.078 : 0.065;
+
+  // Arrowhead rotation aligned with tangent at 95% of the final curve
+  const arrowRotation = useMemo(() => {
+    const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    q.setFromUnitVectors(up, lastTangent.clone().normalize());
+    return q;
+  }, [lastTangent]);
 
   const handleSelect = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
@@ -186,34 +236,46 @@ const SingleCutTrajectory: React.FC<SingleTrajectoryProps> = ({
 
   return (
     <group>
-      {/* Primary 3D Jump Parabola */}
-      <CatmullRomLine
-        points={points}
-        curveType="centripetal"
-        tension={0.5}
-        color={diffConfig.color}
-        lineWidth={lineWidth}
-        transparent
-        opacity={lineOpacity}
+      {/* 1. Curved 3D Jump Tube Geometry Segments */}
+      {segments.map((seg, idx) => (
+        <mesh
+          key={`seg-${idx}`}
+          onClick={handleSelect}
+          onPointerOver={handlePointerOver}
+          onPointerOut={handlePointerOut}
+        >
+          <tubeGeometry args={[seg.curve, 32, tubeRadius, 8, false]} />
+          <meshStandardMaterial
+            color={color}
+            emissive={color}
+            emissiveIntensity={isSelected ? 0.75 : isHovered ? 0.5 : 0.28}
+            transparent
+            opacity={lineOpacity}
+            roughness={0.25}
+          />
+        </mesh>
+      ))}
+
+      {/* 2. Arrowhead Cone at 95% of the curve pointing towards landing block */}
+      <mesh
+        position={lastPoint}
+        quaternion={arrowRotation}
         onClick={handleSelect}
         onPointerOver={handlePointerOver}
         onPointerOut={handlePointerOut}
-      />
-
-      {/* Bright Neon Aura Halo when Selected or Hovered */}
-      {isHighlighted && (
-        <CatmullRomLine
-          points={points}
-          curveType="centripetal"
-          tension={0.5}
-          color={diffConfig.color}
-          lineWidth={lineWidth + 5.5}
+      >
+        <coneGeometry args={[0.18, 0.4, 12]} />
+        <meshStandardMaterial
+          color={color}
+          emissive={color}
+          emissiveIntensity={isSelected ? 0.8 : 0.35}
           transparent
-          opacity={isSelected ? 0.3 : 0.18}
+          opacity={lineOpacity}
+          roughness={0.2}
         />
-      )}
+      </mesh>
 
-      {/* Takeoff Ring on Start Block */}
+      {/* 3. Takeoff Ring on Start Block */}
       <group position={startSurface}>
         <mesh
           rotation={[-Math.PI / 2, 0, 0]}
@@ -222,10 +284,10 @@ const SingleCutTrajectory: React.FC<SingleTrajectoryProps> = ({
           onPointerOut={handlePointerOut}
         >
           <ringGeometry
-            args={[isHighlighted ? 0.2 : 0.16, isHighlighted ? 0.38 : 0.3, 28]}
+            args={[isHighlighted ? 0.18 : 0.14, isHighlighted ? 0.36 : 0.28, 28]}
           />
           <meshBasicMaterial
-            color={diffConfig.color}
+            color={color}
             side={THREE.DoubleSide}
             transparent
             opacity={lineOpacity}
@@ -233,9 +295,9 @@ const SingleCutTrajectory: React.FC<SingleTrajectoryProps> = ({
         </mesh>
         {isHighlighted && (
           <mesh rotation={[-Math.PI / 2, 0, 0]}>
-            <circleGeometry args={[0.14, 20]} />
+            <circleGeometry args={[0.12, 20]} />
             <meshBasicMaterial
-              color={diffConfig.color}
+              color={color}
               side={THREE.DoubleSide}
               transparent
               opacity={0.45}
@@ -244,7 +306,7 @@ const SingleCutTrajectory: React.FC<SingleTrajectoryProps> = ({
         )}
       </group>
 
-      {/* Landing Ring on Target Block */}
+      {/* 4. Landing Target Ring on Target Block */}
       <group position={endSurface}>
         <mesh
           rotation={[-Math.PI / 2, 0, 0]}
@@ -253,10 +315,10 @@ const SingleCutTrajectory: React.FC<SingleTrajectoryProps> = ({
           onPointerOut={handlePointerOut}
         >
           <ringGeometry
-            args={[isHighlighted ? 0.24 : 0.2, isHighlighted ? 0.44 : 0.36, 28]}
+            args={[isHighlighted ? 0.22 : 0.18, isHighlighted ? 0.42 : 0.34, 28]}
           />
           <meshBasicMaterial
-            color={diffConfig.color}
+            color={color}
             side={THREE.DoubleSide}
             transparent
             opacity={lineOpacity}
@@ -273,7 +335,7 @@ const SingleCutTrajectory: React.FC<SingleTrajectoryProps> = ({
         </mesh>
       </group>
 
-      {/* Floating <WorldHtml center> Pill Badge at the Apex of the Curve */}
+      {/* 5. Floating <WorldHtml center> Pill Badge at the Apex of the Curve */}
       <WorldHtml position={apex} center>
         <button
           type="button"
@@ -285,11 +347,11 @@ const SingleCutTrajectory: React.FC<SingleTrajectoryProps> = ({
           onMouseLeave={() => onHover(null)}
           style={{
             boxShadow: isHighlighted ? diffConfig.glowShadow : undefined,
-            borderColor: isHighlighted ? diffConfig.color : undefined,
+            borderColor: isHighlighted ? color : undefined,
           }}
           className={`pointer-events-auto flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 font-mono text-xs font-extrabold tracking-tight backdrop-blur-md transition-all duration-200 ${
             isSelected
-              ? 'scale-115 bg-zinc-950 text-white ring-2 ring-white/20'
+              ? 'scale-115 bg-zinc-950 text-white ring-2 ring-cyan-400'
               : isHovered
                 ? 'scale-110 bg-zinc-950/95 text-white'
                 : hasActiveSelection
@@ -300,8 +362,8 @@ const SingleCutTrajectory: React.FC<SingleTrajectoryProps> = ({
           <span
             className="h-2 w-2 rounded-full shrink-0"
             style={{
-              backgroundColor: diffConfig.color,
-              boxShadow: `0 0 8px ${diffConfig.color}`,
+              backgroundColor: color,
+              boxShadow: `0 0 8px ${color}`,
             }}
           />
           <span>-{cut.timeSavedSeconds.toFixed(1)}s</span>
@@ -368,7 +430,7 @@ export const CutTrajectories: React.FC = () => {
     });
   }, [cuts, selectedModuleId, activeMode, selectedCutId, filters]);
 
-  const draftPreview = useMemo(() => {
+  const draftTrajectory = useMemo(() => {
     if (activeMode !== 'SUBMIT' || !draftStartBlock || !draftEndBlock) {
       return null;
     }
@@ -386,13 +448,21 @@ export const CutTrajectories: React.FC = () => {
     currentModule?.blocks,
   ]);
 
+  const draftArrowRotation = useMemo(() => {
+    if (!draftTrajectory) return null;
+    const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    q.setFromUnitVectors(up, draftTrajectory.lastTangent.clone().normalize());
+    return q;
+  }, [draftTrajectory]);
+
   return (
     <group>
       {visibleCuts.map((cut) => (
         <SingleCutTrajectory
           key={cut.id}
           cut={cut}
-          moduleBlocks={currentModule.blocks}
+          moduleBlocks={currentModule?.blocks || []}
           isSelected={selectedCutId === cut.id}
           isHovered={hoveredCutId === cut.id}
           hasActiveSelection={selectedCutId !== null}
@@ -402,20 +472,39 @@ export const CutTrajectories: React.FC = () => {
       ))}
 
       {/* Live Preview Curve when creating a new Cut in Submit mode */}
-      {draftPreview && (
+      {draftTrajectory && (
         <group>
-          <CatmullRomLine
-            points={draftPreview.points}
-            curveType="centripetal"
-            tension={0.5}
-            color="#22d3ee"
-            lineWidth={4}
-            dashed
-            dashScale={3}
-            dashSize={0.6}
-            gapSize={0.3}
-          />
-          <WorldHtml position={draftPreview.apex} center>
+          {draftTrajectory.segments.map((seg, idx) => (
+            <mesh key={`draft-seg-${idx}`}>
+              <tubeGeometry args={[seg.curve, 32, 0.08, 8, false]} />
+              <meshStandardMaterial
+                color="#06b6d4"
+                emissive="#06b6d4"
+                emissiveIntensity={0.8}
+                transparent
+                opacity={0.9}
+                roughness={0.2}
+              />
+            </mesh>
+          ))}
+
+          {draftArrowRotation && (
+            <mesh
+              position={draftTrajectory.lastPoint}
+              quaternion={draftArrowRotation}
+            >
+              <coneGeometry args={[0.18, 0.4, 12]} />
+              <meshStandardMaterial
+                color="#06b6d4"
+                emissive="#06b6d4"
+                emissiveIntensity={0.9}
+                transparent
+                opacity={0.9}
+              />
+            </mesh>
+          )}
+
+          <WorldHtml position={draftTrajectory.apex} center>
             <div className="pointer-events-none whitespace-nowrap rounded-full bg-cyan-500/90 border border-white/40 px-2.5 py-0.5 text-[11px] font-mono font-bold text-zinc-950 shadow-lg">
               NEUER CUT PREVIEW
             </div>

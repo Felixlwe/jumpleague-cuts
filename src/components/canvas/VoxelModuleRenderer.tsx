@@ -501,6 +501,7 @@ const MinecraftSpectatorControls: React.FC = () => {
  * Combines high-performance chunk-merged mesh rendering with Minecraft Spectator controls.
  */
 export const VoxelModuleRenderer: React.FC = () => {
+  const { gl } = useThree();
   const modules = useJLStore((s) => s.modules);
   const selectedModuleId = useJLStore((s) => s.selectedModuleId);
   const cuts = useJLStore((s) => s.cuts);
@@ -520,6 +521,9 @@ export const VoxelModuleRenderer: React.FC = () => {
   );
   const updateDraftMidPoint = useJLStore((s) => s.updateDraftMidPoint);
   const loadModuleBlocks = useJLStore((s) => s.loadModuleBlocks);
+  const updateModuleThumbnail = useJLStore((s) => s.updateModuleThumbnail);
+
+  const hasCapturedRef = useRef<Record<string, boolean>>({});
 
   const currentModule = useMemo(() => {
     if (!selectedModuleId) return modules[0] ?? null;
@@ -591,6 +595,33 @@ export const VoxelModuleRenderer: React.FC = () => {
     }
     return buildMergedModuleGeometry(currentModule.blocks, mcmeta);
   }, [mcmeta, currentModule?.blocks]);
+
+  // Auto-capture 3D screenshot once geometry is rendered if module has no thumbnail
+  useEffect(() => {
+    if (!currentModule || !mergedResult || currentModule.thumbnailUrl) return;
+    if (hasCapturedRef.current[currentModule.id]) return;
+
+    const timer = setTimeout(() => {
+      try {
+        if (!gl?.domElement) return;
+        const dataUrl = gl.domElement.toDataURL('image/webp', 0.65);
+        if (dataUrl && dataUrl.length > 100) {
+          hasCapturedRef.current[currentModule.id] = true;
+          void updateModuleThumbnail(currentModule.id, dataUrl);
+        }
+      } catch (err) {
+        console.warn('[Screenshot] Auto-capture failed:', err);
+      }
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [
+    currentModule?.id,
+    currentModule?.thumbnailUrl,
+    mergedResult,
+    gl,
+    updateModuleThumbnail,
+  ]);
 
   // Fast Voxel Raycasting: determines the clicked/hovered voxel coordinate from intersection point & normal
   const getVoxelCoordFromHit = useCallback(
@@ -743,32 +774,81 @@ export const VoxelModuleRenderer: React.FC = () => {
         />
       )}
 
-      {/* Selected Cut Start & End Highlight Plates (in Explore / Admin mode) */}
+      {/* Selected Cut Start, Mid, Target Box-Outlines (in Explore / Admin mode) */}
       {!isSubmitMode && selectedCut && (
-        <>
-          <mesh
+        <group>
+          {/* 1. Start Block (Green Box Outline) */}
+          <group
             position={[
               selectedCut.startBlock.x,
-              selectedCut.startBlock.y + 0.52,
+              selectedCut.startBlock.y,
               selectedCut.startBlock.z,
             ]}
           >
-            <boxGeometry args={[1.06, 0.04, 1.06]} />
-            <meshBasicMaterial color="#06b6d4" transparent opacity={0.8} />
-            <Edges color="#67e8f9" threshold={1} />
-          </mesh>
-          <mesh
+            <mesh>
+              <boxGeometry args={[1.04, 1.04, 1.04]} />
+              <meshBasicMaterial
+                color="#10b981"
+                transparent
+                opacity={0.16}
+                depthWrite={false}
+              />
+              <Edges scale={1.02} threshold={1} color="#22c55e" />
+            </mesh>
+            <WorldHtml position={[0, 0.85, 0]} center>
+              <div className="pointer-events-none whitespace-nowrap rounded-full bg-emerald-500/90 px-2 py-0.5 text-[9px] font-extrabold text-zinc-950 shadow-md">
+                START
+              </div>
+            </WorldHtml>
+          </group>
+
+          {/* 2. Mid Points (Orange Box Outlines) */}
+          {selectedCut.midPoints &&
+            selectedCut.midPoints.map((mid, idx) => (
+              <group key={`sel-mid-${idx}`} position={[mid.x, mid.y, mid.z]}>
+                <mesh>
+                  <boxGeometry args={[1.04, 1.04, 1.04]} />
+                  <meshBasicMaterial
+                    color="#f97316"
+                    transparent
+                    opacity={0.16}
+                    depthWrite={false}
+                  />
+                  <Edges scale={1.02} threshold={1} color="#f97316" />
+                </mesh>
+                <WorldHtml position={[0, 0.85, 0]} center>
+                  <div className="pointer-events-none whitespace-nowrap rounded-full bg-orange-500/90 px-2 py-0.5 text-[9px] font-extrabold text-white shadow-md">
+                    MID {selectedCut.midPoints!.length > 1 ? idx + 1 : ''}
+                  </div>
+                </WorldHtml>
+              </group>
+            ))}
+
+          {/* 3. Target Block (Cyan Box Outline) */}
+          <group
             position={[
               selectedCut.endBlock.x,
-              selectedCut.endBlock.y + 0.52,
+              selectedCut.endBlock.y,
               selectedCut.endBlock.z,
             ]}
           >
-            <boxGeometry args={[1.06, 0.04, 1.06]} />
-            <meshBasicMaterial color="#10b981" transparent opacity={0.8} />
-            <Edges color="#6ee7b7" threshold={1} />
-          </mesh>
-        </>
+            <mesh>
+              <boxGeometry args={[1.04, 1.04, 1.04]} />
+              <meshBasicMaterial
+                color="#06b6d4"
+                transparent
+                opacity={0.16}
+                depthWrite={false}
+              />
+              <Edges scale={1.02} threshold={1} color="#22d3ee" />
+            </mesh>
+            <WorldHtml position={[0, 0.85, 0]} center>
+              <div className="pointer-events-none whitespace-nowrap rounded-full bg-cyan-500/90 px-2 py-0.5 text-[9px] font-extrabold text-zinc-950 shadow-md">
+                ZIEL
+              </div>
+            </WorldHtml>
+          </group>
+        </group>
       )}
 
       {/* Submit Mode: Hover Wireframe Box & Tooltip (Only rendered for the currently hovered block!) */}

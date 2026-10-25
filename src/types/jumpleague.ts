@@ -43,6 +43,7 @@ export interface JLModule {
   name: string;
   difficulty: ModuleDifficulty;
   description?: string;
+  thumbnailUrl?: string;         // Vorschaubild (3D-Screenshot oder Data-URI)
   dimensions: Vector3D;
   blockCount: number;
   blocks: VoxelBlock[];          // Für das Test-Modul & geparste Schematics

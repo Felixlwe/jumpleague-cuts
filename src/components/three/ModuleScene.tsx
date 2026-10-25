@@ -31,6 +31,7 @@ export const ModuleScene: React.FC = () => {
         gl={{
           antialias: true,
           powerPreference: 'high-performance',
+          preserveDrawingBuffer: true,
           toneMapping: THREE.NoToneMapping,
           outputColorSpace: THREE.SRGBColorSpace,
         }}

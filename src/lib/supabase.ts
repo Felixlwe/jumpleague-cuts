@@ -219,6 +219,7 @@ export interface SupabaseModuleRow {
   name: string;
   difficulty: string;
   description?: string;
+  thumbnail_url?: string | null;
   blocks: VoxelBlock[];
   spawn_point?: Vector3D | number[] | null;
   finish_point?: Vector3D | number[] | null;
@@ -263,6 +264,7 @@ export function mapDbRowToModule(row: Record<string, unknown>): JLModule {
     name: String(row.name || 'Unbenanntes Modul'),
     difficulty: (row.difficulty || 'MEDIUM') as JLModule['difficulty'],
     description: String(row.description || ''),
+    thumbnailUrl: row.thumbnail_url ? String(row.thumbnail_url) : undefined,
     dimensions: {
       x: maxX || 12,
       y: maxY || 12,
@@ -284,6 +286,7 @@ export function mapModuleToDbRow(module: JLModule): SupabaseModuleRow {
     name: module.name,
     difficulty: module.difficulty,
     description: module.description || '',
+    thumbnail_url: module.thumbnailUrl || null,
     blocks: module.blocks,
     spawn_point: module.spawnPoint
       ? [module.spawnPoint.x, module.spawnPoint.y, module.spawnPoint.z]
@@ -320,13 +323,27 @@ export async function fetchModulesFromSupabase(): Promise<FetchModulesResult | n
     let hasMore = true;
 
     while (hasMore) {
-      const { data, error } = await supabase
+      let selectFields =
+        'id, short_code, name, difficulty, description, thumbnail_url, spawn_point, finish_point, is_deleted, created_at';
+
+      let { data, error } = await supabase
         .from('modules')
-        .select(
-          'id, short_code, name, difficulty, description, spawn_point, finish_point, is_deleted, created_at'
-        )
+        .select(selectFields)
         .order('created_at', { ascending: true })
         .range(from, from + pageSize - 1);
+
+      // Fault-tolerance: if thumbnail_url column is not yet migrated in Supabase, retry without it
+      if (error && error.message.toLowerCase().includes('thumbnail_url')) {
+        selectFields =
+          'id, short_code, name, difficulty, description, spawn_point, finish_point, is_deleted, created_at';
+        const retry = await supabase
+          .from('modules')
+          .select(selectFields)
+          .order('created_at', { ascending: true })
+          .range(from, from + pageSize - 1);
+        data = retry.data;
+        error = retry.error;
+      }
 
       if (error) {
         console.warn('[Supabase] Modules table not ready or error:', error.message);
@@ -338,7 +355,8 @@ export async function fetchModulesFromSupabase(): Promise<FetchModulesResult | n
         break;
       }
 
-      for (const row of data) {
+      const rows = (data as unknown as Record<string, unknown>[]) || [];
+      for (const row of rows) {
         if (row.is_deleted) {
           deletedIds.push(String(row.id));
         } else {
@@ -357,6 +375,33 @@ export async function fetchModulesFromSupabase(): Promise<FetchModulesResult | n
   } catch (err) {
     console.warn('[Supabase] Exception fetching modules:', err);
     return null;
+  }
+}
+
+/**
+ * Safely updates the thumbnail URL for a module in Supabase.
+ * Returns true on success, false if the column does not exist or an error occurs.
+ */
+export async function updateModuleThumbnailInSupabase(
+  moduleId: string,
+  thumbnailUrl: string
+): Promise<boolean> {
+  if (!supabase) return false;
+
+  try {
+    const { error } = await supabase
+      .from('modules')
+      .update({ thumbnail_url: thumbnailUrl })
+      .eq('id', moduleId);
+
+    if (error) {
+      console.warn('[Supabase] Could not update thumbnail_url in database:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] Exception updating thumbnail_url:', err);
+    return false;
   }
 }
 

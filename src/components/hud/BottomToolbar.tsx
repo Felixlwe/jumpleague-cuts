@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   RotateCcw,
   Eye,
@@ -8,6 +8,7 @@ import {
   PlusCircle,
   ShieldCheck,
   Compass,
+  Camera,
 } from 'lucide-react';
 import { useJLStore } from '@/store/useJLStore';
 import {
@@ -18,12 +19,37 @@ import {
 export const BottomToolbar: React.FC = () => {
   const showCutLines = useJLStore((s) => s.showCutLines);
   const selectedCutId = useJLStore((s) => s.selectedCutId);
+  const selectedModuleId = useJLStore((s) => s.selectedModuleId);
   const activeMode = useJLStore((s) => s.activeMode);
   const cuts = useJLStore((s) => s.cuts);
+  const isAdminAuthenticated = useJLStore((s) => s.isAdminAuthenticated);
+  const isAdminMode = useJLStore((s) => s.isAdminMode);
+  const updateModuleThumbnail = useJLStore((s) => s.updateModuleThumbnail);
 
   const toggleCutLines = useJLStore((s) => s.toggleCutLines);
   const resetCamera = useJLStore((s) => s.resetCamera);
   const setActiveMode = useJLStore((s) => s.setActiveMode);
+
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [capturedSuccess, setCapturedSuccess] = useState(false);
+
+  const handleCaptureThumbnail = async () => {
+    if (!selectedModuleId) return;
+    setIsCapturing(true);
+    try {
+      const canvas = document.querySelector('canvas');
+      if (canvas) {
+        const dataUrl = canvas.toDataURL('image/webp', 0.65);
+        await updateModuleThumbnail(selectedModuleId, dataUrl);
+        setCapturedSuccess(true);
+        setTimeout(() => setCapturedSuccess(false), 3000);
+      }
+    } catch (err) {
+      console.warn('Screenshot capture failed:', err);
+    } finally {
+      setIsCapturing(false);
+    }
+  };
 
   const pendingCount = useMemo(
     () => cuts.filter((c) => c.status === 'PENDING').length,
@@ -121,6 +147,30 @@ export const BottomToolbar: React.FC = () => {
             </span>
           )}
         </button>
+
+        {/* Admin Action: 📸 Aktuelle Ansicht als Vorschaubild speichern */}
+        {(isAdminAuthenticated || isAdminMode || activeMode === 'ADMIN') && (
+          <button
+            type="button"
+            onClick={handleCaptureThumbnail}
+            disabled={isCapturing}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition active:scale-95 shadow-sm ${
+              capturedSuccess
+                ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300'
+                : 'border-cyan-500/40 bg-cyan-500/15 text-cyan-300 hover:border-cyan-400 hover:bg-cyan-500/25 hover:text-white'
+            }`}
+            title="Aktuelle 3D-Kameraansicht als Vorschaubild für dieses Modul speichern"
+          >
+            <Camera className="h-3.5 w-3.5 text-cyan-400" />
+            <span>
+              {capturedSuccess
+                ? '✓ Gespeichert!'
+                : isCapturing
+                  ? 'Speichere...'
+                  : '📸 Ansicht als Vorschaubild speichern'}
+            </span>
+          </button>
+        )}
       </div>
 
       <div className="hidden lg:block h-4 w-px bg-white/15" />
