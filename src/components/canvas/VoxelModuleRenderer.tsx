@@ -210,6 +210,11 @@ const MinecraftSpectatorControls: React.FC = () => {
     const canvas = gl.domElement;
     if (!canvas) return;
 
+    // Inject global style rule for guaranteed cursor hiding during free-look without browser pointerLock banner
+    const styleEl = document.createElement('style');
+    styleEl.innerHTML = `body.free-look-active, body.free-look-active * { cursor: none !important; }`;
+    document.head.appendChild(styleEl);
+
     camera.rotation.order = 'YXZ';
 
     const isTyping = () => {
@@ -277,7 +282,7 @@ const MinecraftSpectatorControls: React.FC = () => {
     const handleBlur = () => {
       keysPressed.current.clear();
       isRightMouseDown.current = false;
-      document.body.style.cursor = 'auto';
+      document.body.classList.remove('free-look-active');
     };
 
     const handleContextMenu = (e: MouseEvent) => {
@@ -286,11 +291,11 @@ const MinecraftSpectatorControls: React.FC = () => {
 
     const handleMouseDown = (e: MouseEvent) => {
       if (e.button === 2) {
-        // Right click down: initiate free-look without browser pointerLock banner
+        // Right click down: initiate free-look, hide cursor completely without browser pointerLock banner
         transitionRef.current = null;
         isRightMouseDown.current = true;
         lastMousePos.current = { x: e.clientX, y: e.clientY };
-        document.body.style.cursor = 'grabbing';
+        document.body.classList.add('free-look-active');
       }
     };
 
@@ -321,7 +326,7 @@ const MinecraftSpectatorControls: React.FC = () => {
     const handleMouseUp = (e: MouseEvent) => {
       if (e.button === 2) {
         isRightMouseDown.current = false;
-        document.body.style.cursor = 'auto';
+        document.body.classList.remove('free-look-active');
       }
     };
 
@@ -352,7 +357,8 @@ const MinecraftSpectatorControls: React.FC = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('wheel', handleWheel);
-      document.body.style.cursor = 'auto';
+      document.body.classList.remove('free-look-active');
+      styleEl.remove();
     };
   }, [camera, gl.domElement]);
 
