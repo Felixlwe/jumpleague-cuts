@@ -722,19 +722,81 @@ export const VoxelModuleRenderer: React.FC = () => {
     updateModuleThumbnail,
   ]);
 
-  // Fast Voxel Raycasting: determines the clicked/hovered voxel coordinate from intersection point & normal
+  // Omnidirectional Voxel Raycasting: determines the clicked/hovered voxel coordinate
+  // from ANY side (Top, Bottom, North, South, East, West) or thin geometry (ladders, slabs, panes)
   const getVoxelCoordFromHit = useCallback(
     (e: ThreeEvent<any>): Vector3D | null => {
-      if (!e.face) return null;
-      const hitPos = e.point
-        .clone()
-        .sub(e.face.normal.clone().multiplyScalar(0.01));
-      const bx = Math.round(hitPos.x);
-      const by = Math.round(hitPos.y);
-      const bz = Math.round(hitPos.z);
-      return { x: bx, y: by, z: bz };
+      if (!e.point) return null;
+
+      const rayDir = e.ray?.direction;
+
+      // 1. Primary Strategy: Penetrate forward along ray trajectory into the block
+      // Moving in the direction the ray traveled from camera penetrates inside the hit block on any face!
+      const testDeltas = [0.03, 0.06, 0.12, 0.2, -0.03];
+      for (const delta of testDeltas) {
+        const testPos = rayDir
+          ? e.point.clone().addScaledVector(rayDir, delta)
+          : e.point.clone();
+
+        const bx = Math.round(testPos.x);
+        const by = Math.round(testPos.y);
+        const bz = Math.round(testPos.z);
+        const key = `${bx},${by},${bz}`;
+        if (blockMap.has(key)) {
+          return { x: bx, y: by, z: bz };
+        }
+      }
+
+      // 2. Normal-based penetration (inward normal towards block interior)
+      if (e.face?.normal && rayDir) {
+        const inwardNormal = e.face.normal.clone();
+        // If normal points towards the camera, negate it so it penetrates into the block
+        if (inwardNormal.dot(rayDir) < 0) {
+          inwardNormal.negate();
+        }
+        const normalPos = e.point.clone().addScaledVector(inwardNormal, 0.05);
+        const bx = Math.round(normalPos.x);
+        const by = Math.round(normalPos.y);
+        const bz = Math.round(normalPos.z);
+        const key = `${bx},${by},${bz}`;
+        if (blockMap.has(key)) {
+          return { x: bx, y: by, z: bz };
+        }
+      }
+
+      // 3. Fallback: Find nearest block in blockMap within 0.85 distance of hit point
+      // Guarantees selection for thin geometry like ladders, iron bars, or glass panes
+      let closestBlock: Vector3D | null = null;
+      let minDistanceSq = 1.0;
+
+      const cx = Math.round(e.point.x);
+      const cy = Math.round(e.point.y);
+      const cz = Math.round(e.point.z);
+
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dz = -1; dz <= 1; dz++) {
+            const nx = cx + dx;
+            const ny = cy + dy;
+            const nz = cz + dz;
+            const key = `${nx},${ny},${nz}`;
+            if (blockMap.has(key)) {
+              const distSq =
+                (e.point.x - nx) ** 2 +
+                (e.point.y - ny) ** 2 +
+                (e.point.z - nz) ** 2;
+              if (distSq < minDistanceSq) {
+                minDistanceSq = distSq;
+                closestBlock = { x: nx, y: ny, z: nz };
+              }
+            }
+          }
+        }
+      }
+
+      return closestBlock;
     },
-    []
+    [blockMap]
   );
 
   const handlePointerMove = useCallback(
