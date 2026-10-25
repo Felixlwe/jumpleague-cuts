@@ -189,6 +189,182 @@ const SkeletonModuleCard: React.FC = () => (
   </div>
 );
 
+interface ModuleCardProps {
+  mod: JLModule;
+  diffCfg: ReturnType<typeof getModuleDifficultyConfig>;
+  cutCount: number;
+  maxTimeSaved: number;
+  cleanName: string;
+  cleanHrefId: string;
+  isAdminMode: boolean;
+  isReplacing: boolean;
+  moduleToReplace: string | null;
+  onSelect: (id: string) => void;
+  onTriggerReplace: (e: React.MouseEvent, id: string) => void;
+  onDelete: (mod: JLModule) => void;
+}
+
+/**
+ * Isolated ModuleCard component.
+ * Maintains local `isHovered` state so hovering a card NEVER re-renders the parent
+ * page or any sibling cards. All other cards stay completely static.
+ */
+const ModuleCard = React.memo(function ModuleCard({
+  mod,
+  diffCfg,
+  cutCount,
+  maxTimeSaved,
+  cleanName,
+  cleanHrefId,
+  isAdminMode,
+  isReplacing,
+  moduleToReplace,
+  onSelect,
+  onTriggerReplace,
+  onDelete,
+}: ModuleCardProps) {
+  const [isHovered, setIsHovered] = useState(false);
+
+  return (
+    <Link
+      href={`/modules/${encodeURIComponent(cleanHrefId)}`}
+      onClick={() => onSelect(mod.id)}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onPointerEnter={() => setIsHovered(true)}
+      onPointerLeave={() => setIsHovered(false)}
+      className={`jl-module-card group relative flex flex-col justify-between overflow-hidden rounded-xl border border-white/10 bg-zinc-950/85 p-3.5 text-left shadow-lg min-h-[140px] select-none ${
+        isHovered ? 'is-hovered' : ''
+      }`}
+      style={{
+        ['--card-color' as string]: diffCfg.color,
+        ['--card-glow' as string]: `${diffCfg.color}80`,
+      }}
+    >
+      {/* Background Thumbnail Image or 2D Isometric Silhouette Fallback */}
+      {mod.thumbnailUrl ? (
+        <div
+          className="jl-thumb absolute inset-0 bg-cover bg-center pointer-events-none opacity-60"
+          style={{ backgroundImage: `url(${mod.thumbnailUrl})` }}
+        />
+      ) : (
+        <ModuleThumbnailFallback
+          blocks={mod.blocks}
+          difficulty={mod.difficulty}
+        />
+      )}
+
+      {/* Dark subtle gradient overlay ensuring text readability */}
+      <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/65 to-transparent pointer-events-none" />
+
+      {/* Subtle Radial Ambient Spotlight on Hover */}
+      <div
+        className="jl-spotlight absolute inset-0 pointer-events-none opacity-0 z-0"
+        style={{
+          background: `radial-gradient(circle at top left, ${diffCfg.color}33, transparent 75%)`,
+        }}
+      />
+
+      {/* Top Accent Glow Bar */}
+      <div
+        className="jl-accent-bar absolute inset-x-0 top-0 h-1 z-10 opacity-50"
+        style={{ backgroundColor: diffCfg.color }}
+      />
+
+      <div className="relative z-10">
+        {/* Top Row: Modul-Nummer/ID Badge + Difficulty Pill + Modul-Name + Admin Icons */}
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span
+              className="jl-badge-id flex h-7 w-9 shrink-0 items-center justify-center rounded-lg border font-mono text-xs font-black text-white shadow-sm"
+              style={{
+                borderColor: `${diffCfg.color}66`,
+                backgroundColor: `${diffCfg.color}1c`,
+              }}
+            >
+              {mod.id}
+            </span>
+
+            <span
+              className={`shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase ${diffCfg.badgeClass}`}
+            >
+              {diffCfg.label}
+            </span>
+
+            <h2
+              className="jl-title truncate text-xs font-bold tracking-tight text-zinc-100"
+              title={cleanName}
+            >
+              {cleanName}
+            </h2>
+          </div>
+
+          {/* Top Right: Admin Action Icons */}
+          {isAdminMode && (
+            <div
+              className="flex items-center gap-1 shrink-0"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+              }}
+            >
+              <button
+                type="button"
+                title="Schematic (.schem / .litematic) ersetzen"
+                onClick={(e) => onTriggerReplace(e, mod.id)}
+                disabled={isReplacing && moduleToReplace === mod.id}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/30 hover:border-cyan-400 hover:text-white transition shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {isReplacing && moduleToReplace === mod.id ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />
+                ) : (
+                  <Upload className="h-3.5 w-3.5" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                title="Modul löschen"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDelete(mod);
+                }}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 hover:bg-rose-500/30 hover:border-rose-400 hover:text-white transition shadow-sm active:scale-95 cursor-pointer"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom Row: Cut-Anzahl + Max-Zeitersparnis & Arrow */}
+      <div className="relative z-10 flex items-center justify-between gap-2 border-t border-white/10 pt-2.5 font-mono text-xs mt-3">
+        <div className="jl-cut-badge flex items-center gap-1.5 rounded-lg border border-white/10 bg-zinc-900/90 px-2 py-1 text-[11px] font-bold text-zinc-300 shadow-sm">
+          <Route className="h-3 w-3 text-cyan-400" />
+          <span>
+            {cutCount} {cutCount === 1 ? 'Cut' : 'Cuts'}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {maxTimeSaved > 0 && (
+            <span className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-400">
+              <Zap className="h-3 w-3" />
+              <span>-{maxTimeSaved.toFixed(1)}s</span>
+            </span>
+          )}
+          <ArrowUpRight className="jl-arrow h-3.5 w-3.5 text-zinc-400" />
+        </div>
+      </div>
+    </Link>
+  );
+});
+
 export default function ModuleHubPage() {
   const isMounted = useIsMounted();
 
@@ -348,20 +524,19 @@ export default function ModuleHubPage() {
   };
 
   return (
-    <main className="relative min-h-screen w-full bg-[#11141e] text-zinc-100">
-      {/* Subtle Tactical Grid & Ambient Background Glows */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none fixed inset-0 bg-[linear-gradient(to_right,#ffffff06_1px,transparent_1px),linear-gradient(to_bottom,#ffffff06_1px,transparent_1px)] bg-[size:36px_36px]"
-      />
-      <div
-        aria-hidden="true"
-        className="pointer-events-none fixed -top-40 left-1/4 h-96 w-96 rounded-full bg-emerald-500/10 blur-[130px]"
-      />
-      <div
-        aria-hidden="true"
-        className="pointer-events-none fixed -bottom-40 right-1/4 h-96 w-96 rounded-full bg-cyan-500/10 blur-[130px]"
-      />
+    <main
+      className="relative min-h-screen w-full bg-[#11141e] text-zinc-100"
+      style={{
+        backgroundImage: `
+          radial-gradient(circle at 25% 0%, rgba(16, 185, 129, 0.08) 0%, transparent 50%),
+          radial-gradient(circle at 75% 100%, rgba(6, 182, 212, 0.08) 0%, transparent 50%),
+          linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px)
+        `,
+        backgroundSize: '100% 100%, 100% 100%, 36px 36px, 36px 36px',
+        backgroundAttachment: 'fixed',
+      }}
+    >
 
       {/* Floating Admin Controls in the top-right corner on the checkered background */}
       <div className="absolute top-4 right-4 z-50 flex flex-col items-end gap-2">
@@ -623,137 +798,21 @@ export default function ModuleHubPage() {
               const cleanHrefId = mod.id.replace(/^#+/, '');
 
               return (
-                <Link
+                <ModuleCard
                   key={mod.id}
-                  href={`/modules/${encodeURIComponent(cleanHrefId)}`}
-                  onClick={() => selectModule(mod.id)}
-                  className="jl-module-card group relative flex flex-col justify-between overflow-hidden rounded-xl border border-white/10 bg-zinc-950/80 p-3.5 text-left backdrop-blur-xl shadow-lg min-h-[140px] select-none"
-                  style={{
-                    ['--card-color' as string]: diffCfg.color,
-                    ['--card-glow' as string]: `${diffCfg.color}80`,
-                  }}
-                >
-                  {/* Background Thumbnail Image or 2D Isometric Silhouette Fallback */}
-                  {mod.thumbnailUrl ? (
-                    <div
-                      className="jl-thumb absolute inset-0 bg-cover bg-center pointer-events-none opacity-60"
-                      style={{ backgroundImage: `url(${mod.thumbnailUrl})` }}
-                    />
-                  ) : (
-                    <ModuleThumbnailFallback
-                      blocks={mod.blocks}
-                      difficulty={mod.difficulty}
-                    />
-                  )}
-
-                  {/* Dark subtle gradient overlay ensuring text readability */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/65 to-transparent pointer-events-none" />
-
-                  {/* Subtle Radial Ambient Spotlight on Hover */}
-                  <div
-                    className="jl-spotlight absolute inset-0 pointer-events-none opacity-0 z-0"
-                    style={{
-                      background: `radial-gradient(circle at top left, ${diffCfg.color}33, transparent 75%)`,
-                    }}
-                  />
-
-                  {/* Top Accent Glow Bar */}
-                  <div
-                    className="jl-accent-bar absolute inset-x-0 top-0 h-1 z-10 opacity-50"
-                    style={{ backgroundColor: diffCfg.color }}
-                  />
-
-                  <div className="relative z-10">
-                    {/* Top Row: Modul-Nummer/ID Badge + Difficulty Pill + Modul-Name + Admin Icons */}
-                    <div className="flex items-center justify-between gap-2 min-w-0">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <span
-                          className="jl-badge-id flex h-7 w-9 shrink-0 items-center justify-center rounded-lg border font-mono text-xs font-black text-white shadow-sm"
-                          style={{
-                            borderColor: `${diffCfg.color}66`,
-                            backgroundColor: `${diffCfg.color}1c`,
-                          }}
-                        >
-                          {mod.id}
-                        </span>
-
-                        <span
-                          className={`shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase ${diffCfg.badgeClass}`}
-                        >
-                          {diffCfg.label}
-                        </span>
-
-                        <h2
-                          className="jl-title truncate text-xs font-bold tracking-tight text-zinc-100"
-                          title={cleanName}
-                        >
-                          {cleanName}
-                        </h2>
-                      </div>
-
-                      {/* Top Right: Admin Action Icons */}
-                      {isAdminMode && (
-                        <div
-                          className="flex items-center gap-1 shrink-0"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                          }}
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                          }}
-                        >
-                          <button
-                            type="button"
-                            title="Schematic (.schem / .litematic) ersetzen"
-                            onClick={(e) => handleTriggerReplace(e, mod.id)}
-                            disabled={isReplacing && moduleToReplace === mod.id}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/30 hover:border-cyan-400 hover:text-white transition shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
-                          >
-                            {isReplacing && moduleToReplace === mod.id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />
-                            ) : (
-                              <Upload className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-
-                          <button
-                            type="button"
-                            title="Modul löschen"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setModuleToDelete(mod);
-                            }}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 hover:bg-rose-500/30 hover:border-rose-400 hover:text-white transition shadow-sm active:scale-95 cursor-pointer"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Bottom Row: Cut-Anzahl + Max-Zeitersparnis & Arrow */}
-                  <div className="relative z-10 flex items-center justify-between gap-2 border-t border-white/10 pt-2.5 font-mono text-xs mt-3">
-                    <div className="jl-cut-badge flex items-center gap-1.5 rounded-lg border border-white/10 bg-zinc-900/90 px-2 py-1 text-[11px] font-bold text-zinc-300 shadow-sm">
-                      <Route className="h-3 w-3 text-cyan-400" />
-                      <span>
-                        {cutCount} {cutCount === 1 ? 'Cut' : 'Cuts'}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {maxTimeSaved > 0 && (
-                        <span className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-400">
-                          <Zap className="h-3 w-3" />
-                          <span>-{maxTimeSaved.toFixed(1)}s</span>
-                        </span>
-                      )}
-                      <ArrowUpRight className="jl-arrow h-3.5 w-3.5 text-zinc-400" />
-                    </div>
-                  </div>
-                </Link>
+                  mod={mod}
+                  diffCfg={diffCfg}
+                  cutCount={cutCount}
+                  maxTimeSaved={maxTimeSaved}
+                  cleanName={cleanName}
+                  cleanHrefId={cleanHrefId}
+                  isAdminMode={isAdminMode}
+                  isReplacing={isReplacing}
+                  moduleToReplace={moduleToReplace}
+                  onSelect={selectModule}
+                  onTriggerReplace={handleTriggerReplace}
+                  onDelete={setModuleToDelete}
+                />
               );
             })}
           </section>
