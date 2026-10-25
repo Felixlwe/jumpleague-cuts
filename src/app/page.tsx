@@ -183,7 +183,7 @@ const SkeletonModuleCard: React.FC = () => (
       </div>
       <div className="mt-4 h-12 w-full rounded-lg bg-zinc-900/60" />
     </div>
-    <div className="flex items-center justify-between border-t border-white/5 pt-2.5 mt-3">
+    <div className="flex items-center justify-between pt-2.5 mt-3">
       <div className="h-6 w-16 rounded-md bg-zinc-800/70" />
       <div className="h-4 w-12 rounded bg-zinc-800/50" />
     </div>
@@ -349,7 +349,7 @@ const ModuleCard = React.memo(function ModuleCard({
       </div>
 
       {/* Bottom Row: Cut-Anzahl + Max-Zeitersparnis & Arrow */}
-      <div className="relative z-10 flex items-center justify-between gap-2 border-t border-white/10 pt-2.5 font-mono text-xs mt-3">
+      <div className="relative z-10 flex items-center justify-between gap-2 pt-2.5 font-mono text-xs mt-3">
         <div className="jl-cut-badge flex items-center gap-1.5 rounded-lg border border-white/10 bg-zinc-900/90 px-2 py-1 text-[11px] font-bold text-zinc-300 shadow-sm">
           <Route className="h-3 w-3 text-cyan-400" />
           <span>
