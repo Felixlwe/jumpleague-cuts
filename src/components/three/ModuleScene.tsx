@@ -27,7 +27,7 @@ export const ModuleScene: React.FC = () => {
       <Canvas
         flat
         dpr={[1, 2]}
-        camera={{ position: [21, 14.5, 9.5], fov: 46, near: 0.1, far: 250 }}
+        camera={{ position: [21, 14.5, 9.5], fov: 46, near: 0.1, far: 500 }}
         gl={{
           antialias: true,
           powerPreference: 'high-performance',
@@ -39,7 +39,7 @@ export const ModuleScene: React.FC = () => {
       >
         {/* Lighter, atmospheric twilight sky & haze */}
         <color attach="background" args={['#1c202d']} />
-        <fog attach="fog" args={['#1c202d', 46, 120]} />
+        <fog attach="fog" args={['#1c202d', 160, 480]} />
 
         {/* Ambient & Directional Lighting */}
         <ambientLight intensity={0.88} />
@@ -75,14 +75,14 @@ export const ModuleScene: React.FC = () => {
         {/* Refined Tactical Ground Grid */}
         <Grid
           position={[0, -0.01, 22]}
-          args={[120, 120]}
+          args={[160, 160]}
           cellSize={1}
           cellThickness={0.7}
           cellColor="#2c3347"
           sectionSize={5}
           sectionThickness={1.2}
           sectionColor="#434d66"
-          fadeDistance={75}
+          fadeDistance={160}
           fadeStrength={1.2}
           infiniteGrid
         />

@@ -9,7 +9,7 @@ import React, {
 import * as THREE from 'three';
 import { Edges } from '@react-three/drei';
 import { ThreeEvent, useThree, useFrame } from '@react-three/fiber';
-import { VoxelBlock, Vector3D } from '@/types/jumpleague';
+import { VoxelBlock, Vector3D, JLModule } from '@/types/jumpleague';
 import { useJLStore } from '@/store/useJLStore';
 import { VOXEL_BLOCK_LABELS } from '@/constants/jumpleagueConfig';
 import { WorldHtml } from '@/components/three/WorldHtml';
@@ -20,6 +20,112 @@ import {
   getAtlasMaterial,
   getTranslucentAtlasMaterial,
 } from '@/lib/mcmetaLoader';
+
+/**
+ * Calculates optimal camera position and look target to frame the entire module
+ * based on its real block bounding box and JumpLeague parkour progression (+Z axis).
+ */
+export function getModuleOverviewCamera(module: JLModule | null): {
+  position: THREE.Vector3;
+  target: THREE.Vector3;
+  hasBlocks: boolean;
+} {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  let hasBlocks = false;
+
+  const blocks = module?.blocks;
+  if (Array.isArray(blocks) && blocks.length > 0) {
+    for (const b of blocks) {
+      const x = Number(b.position?.x ?? (b as unknown as { x?: number }).x);
+      const y = Number(b.position?.y ?? (b as unknown as { y?: number }).y);
+      const z = Number(b.position?.z ?? (b as unknown as { z?: number }).z);
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+      hasBlocks = true;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
+    }
+  }
+
+  // Fallback if module blocks are not loaded yet
+  if (!hasBlocks) {
+    minX = -6;
+    maxX = 6;
+    minY = 1;
+    maxY = 16;
+    minZ = 0;
+    maxZ = 32;
+  }
+
+  const spanX = Math.max(1, maxX - minX + 1);
+  const spanY = Math.max(1, maxY - minY + 1);
+  const spanZ = Math.max(1, maxZ - minZ + 1);
+
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  const centerZ = (minZ + maxZ) / 2;
+
+  // Center target, slightly lowered so bottom blocks have comfortable vertical clearance
+  const target = new THREE.Vector3(centerX, centerY - spanY * 0.05, centerZ);
+
+  // Bounding radius to frame the entire module
+  const radius = Math.sqrt(
+    Math.pow(spanX / 2, 2) +
+    Math.pow(spanY / 2, 2) +
+    Math.pow(spanZ / 2, 2)
+  );
+
+  // Perspective camera with FOV 46 degrees (half angle = 23 deg = 0.4014 rad)
+  const fovRad = (46 * Math.PI) / 180;
+  const requiredDistance = Math.max(
+    (radius / Math.sin(fovRad / 2)) * 1.05,
+    28
+  );
+
+  // Oblique 3/4 perspective looking along course progression from spawn (-Z) to finish (+Z):
+  // Offset to +X (isometric side), +Y (elevated angle), -Z (in front of spawn)
+  const viewDir = new THREE.Vector3(0.55, 0.45, -0.7).normalize();
+  const position = target.clone().addScaledVector(viewDir, requiredDistance);
+
+  return { position, target, hasBlocks };
+}
+
+/**
+ * Sets camera position and orientation using strict 'YXZ' Euler angles.
+ * Prevents Euler roll corruption, flips, and gimbal jumps from standard camera.lookAt().
+ */
+export function applyCameraLookAt(
+  camera: THREE.Camera,
+  pos: THREE.Vector3,
+  target: THREE.Vector3
+): { yaw: number; pitch: number } {
+  const dir = new THREE.Vector3().subVectors(target, pos).normalize();
+  if (dir.lengthSq() < 0.0001) {
+    dir.set(0, 0, -1);
+  }
+
+  // Pitch clamped to [-88.5°, +88.5°] to prevent gimbal flip
+  const maxPitch = (88.5 * Math.PI) / 180;
+  const rawPitch = Math.asin(Math.max(-0.9999, Math.min(0.9999, dir.y)));
+  const pitch = Math.max(-maxPitch, Math.min(maxPitch, rawPitch));
+
+  let yaw = Math.atan2(-dir.x, -dir.z);
+  if (!Number.isFinite(yaw)) yaw = 0;
+
+  camera.position.copy(pos);
+  camera.rotation.order = 'YXZ';
+  camera.rotation.set(pitch, yaw, 0);
+
+  return { yaw, pitch };
+}
 
 /**
  * Minecraft Spectator Flight Controller (FlyControls):
@@ -47,12 +153,12 @@ const MinecraftSpectatorControls: React.FC = () => {
   // Active module lookup
   const currentModule = useMemo(() => {
     if (!selectedModuleId) return modules[0] ?? null;
-    const target = selectedModuleId.trim().toLowerCase().replace(/^#+/, '');
+    const cleanTarget = selectedModuleId.trim().toLowerCase().replace(/^#+/, '');
     return (
       modules.find((m) => {
         const mId = m.id.toLowerCase().replace(/^#+/, '');
         const mShort = (m.shortCode || '').toLowerCase().replace(/^#+/, '');
-        return mId === target || mShort === target;
+        return mId === cleanTarget || mShort === cleanTarget;
       }) ??
       modules[0] ??
       null
@@ -70,8 +176,17 @@ const MinecraftSpectatorControls: React.FC = () => {
   // Pressed keys tracking
   const keysPressed = useRef<Set<string>>(new Set());
 
-  // Initial mount flag to prevent unnecessary transition on first load
-  const isInitialMount = useRef<boolean>(true);
+  // Has user manually moved the camera (via keys, mouse drag, or scroll wheel)?
+  const userHasInteractedRef = useRef<boolean>(false);
+
+  // Has camera been framed for real loaded blocks on initial mount?
+  const hasFramedBlocksRef = useRef<boolean>(false);
+
+  // Previous tracking to detect state changes
+  const prevModuleIdRef = useRef<string | null>(null);
+  const prevCutIdRef = useRef<string | null>(null);
+  const prevResetCounterRef = useRef<number>(cameraResetCounter);
+  const prevBlockCountRef = useRef<number>(0);
 
   // Camera glide / transition state
   const transitionRef = useRef<{
@@ -107,100 +222,89 @@ const MinecraftSpectatorControls: React.FC = () => {
     [camera]
   );
 
-  // Glide to cut position when selectedCutId changes
+  // Camera framing effect: manages initial mount, cut selection, reset, and async block loading
   useEffect(() => {
+    const isNewModule = prevModuleIdRef.current !== selectedModuleId;
+    const isCutChanged = prevCutIdRef.current !== selectedCutId;
+    const isResetClicked = prevResetCounterRef.current !== cameraResetCounter;
+
+    const blockCount = currentModule?.blocks?.length ?? 0;
+    const blocksJustLoaded = prevBlockCountRef.current === 0 && blockCount > 0;
+
+    prevModuleIdRef.current = selectedModuleId;
+    prevCutIdRef.current = selectedCutId;
+    prevResetCounterRef.current = cameraResetCounter;
+    prevBlockCountRef.current = blockCount;
+
+    if (isNewModule || isResetClicked) {
+      userHasInteractedRef.current = false;
+      hasFramedBlocksRef.current = false;
+    }
+
+    // Determine intended target
+    let targetPos: THREE.Vector3 | null = null;
+    let targetLookAt: THREE.Vector3 | null = null;
+
     if (selectedCutId) {
       const cut = cuts.find((c) => c.id === selectedCutId);
       if (cut && cut.cameraPosition && cut.cameraTarget) {
-        const targetPos = new THREE.Vector3(
+        targetPos = new THREE.Vector3(
           cut.cameraPosition.x,
           cut.cameraPosition.y,
           cut.cameraPosition.z
         );
-        const targetLookAt = new THREE.Vector3(
+        targetLookAt = new THREE.Vector3(
           cut.cameraTarget.x,
           cut.cameraTarget.y,
           cut.cameraTarget.z
         );
-
-        if (isInitialMount.current) {
-          isInitialMount.current = false;
-          camera.position.copy(targetPos);
-          camera.lookAt(targetLookAt);
-          camera.rotation.order = 'YXZ';
-          yawRef.current = camera.rotation.y;
-          pitchRef.current = camera.rotation.x;
-          camera.rotation.z = 0;
-        } else {
-          startTransition(targetPos, targetLookAt, 0.45);
-        }
-      }
-    }
-  }, [selectedCutId, cuts, camera, startTransition]);
-
-  // Glide to module overview on module change or camera reset
-  useEffect(() => {
-    const state = useJLStore.getState();
-    if (state.selectedCutId) {
-      const activeCut = state.cuts.find((c) => c.id === state.selectedCutId);
-      if (
-        activeCut &&
-        activeCut.moduleId === selectedModuleId &&
-        activeCut.cameraPosition &&
-        activeCut.cameraTarget
-      ) {
-        const targetPos = new THREE.Vector3(
-          activeCut.cameraPosition.x,
-          activeCut.cameraPosition.y,
-          activeCut.cameraPosition.z
-        );
-        const targetLookAt = new THREE.Vector3(
-          activeCut.cameraTarget.x,
-          activeCut.cameraTarget.y,
-          activeCut.cameraTarget.z
-        );
-
-        if (isInitialMount.current) {
-          isInitialMount.current = false;
-          camera.position.copy(targetPos);
-          camera.lookAt(targetLookAt);
-          camera.rotation.order = 'YXZ';
-          yawRef.current = camera.rotation.y;
-          pitchRef.current = camera.rotation.x;
-          camera.rotation.z = 0;
-        } else {
-          startTransition(targetPos, targetLookAt, 0.45);
-        }
-        return;
       }
     }
 
-    const dims = currentModule?.dimensions || { x: 12, y: 12, z: 24 };
-    const dimZ = Number(dims.z) || 24;
-    const dimY = Number(dims.y) || 12;
-    const midZ = dimZ * 0.46;
-    const camX = Math.max(18, dimZ * 0.45);
-    const camY = Math.max(13, dimY * 1.45);
-    const camZ = midZ - dimZ * 0.25;
+    if (!targetPos || !targetLookAt) {
+      const overview = getModuleOverviewCamera(currentModule);
+      targetPos = overview.position;
+      targetLookAt = overview.target;
+    }
 
-    const targetPos = new THREE.Vector3(camX, camY, camZ);
-    const targetLookAt = new THREE.Vector3(0, 4.2, midZ);
+    const isInitial = !hasFramedBlocksRef.current;
 
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      camera.position.copy(targetPos);
-      camera.lookAt(targetLookAt);
-      camera.rotation.order = 'YXZ';
-      yawRef.current = camera.rotation.y;
-      pitchRef.current = camera.rotation.x;
-      camera.rotation.z = 0;
-    } else {
-      startTransition(targetPos, targetLookAt, 0.45);
+    // A) If cut, module, or reset button changed
+    if (isCutChanged || isResetClicked || isNewModule) {
+      if (isInitial && blockCount === 0 && !selectedCutId) {
+        // Initial placement with placeholder bounds
+        const { yaw, pitch } = applyCameraLookAt(camera, targetPos, targetLookAt);
+        yawRef.current = yaw;
+        pitchRef.current = pitch;
+      } else if (isInitial && (blockCount > 0 || selectedCutId)) {
+        // Initial placement directly on real module bounds or cut
+        hasFramedBlocksRef.current = true;
+        const { yaw, pitch } = applyCameraLookAt(camera, targetPos, targetLookAt);
+        yawRef.current = yaw;
+        pitchRef.current = pitch;
+      } else {
+        startTransition(targetPos, targetLookAt, 0.45);
+      }
+      return;
+    }
+
+    // B) If module blocks just arrived asynchronously and user has not started flying away
+    if (blocksJustLoaded && !selectedCutId && !userHasInteractedRef.current) {
+      hasFramedBlocksRef.current = true;
+      if (isInitial) {
+        const { yaw, pitch } = applyCameraLookAt(camera, targetPos, targetLookAt);
+        yawRef.current = yaw;
+        pitchRef.current = pitch;
+      } else {
+        startTransition(targetPos, targetLookAt, 0.45);
+      }
     }
   }, [
     selectedModuleId,
+    selectedCutId,
     cameraResetCounter,
     currentModule,
+    cuts,
     camera,
     startTransition,
   ]);
@@ -256,6 +360,7 @@ const MinecraftSpectatorControls: React.FC = () => {
           'ArrowRight',
         ].includes(e.code)
       ) {
+        userHasInteractedRef.current = true;
         transitionRef.current = null;
       }
     };
@@ -292,6 +397,7 @@ const MinecraftSpectatorControls: React.FC = () => {
     const handleMouseDown = (e: MouseEvent) => {
       if (e.button === 2) {
         // Right click down: initiate free-look
+        userHasInteractedRef.current = true;
         transitionRef.current = null;
         isRightMouseDown.current = true;
         lastMousePos.current = { x: e.clientX, y: e.clientY };
@@ -355,6 +461,7 @@ const MinecraftSpectatorControls: React.FC = () => {
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
+      userHasInteractedRef.current = true;
       transitionRef.current = null;
       const forward = new THREE.Vector3();
       camera.getWorldDirection(forward);
@@ -408,26 +515,22 @@ const MinecraftSpectatorControls: React.FC = () => {
       // Ease-out cubic for smooth deceleration
       const ease = 1 - Math.pow(1 - t, 3);
 
-      camera.position.lerpVectors(startPos, endPos, ease);
+      const currentPos = new THREE.Vector3().lerpVectors(startPos, endPos, ease);
       const currentLook = new THREE.Vector3().lerpVectors(
         startLookAt,
         endLookAt,
         ease
       );
-      camera.lookAt(currentLook);
-      camera.rotation.order = 'YXZ';
-      yawRef.current = camera.rotation.y;
-      pitchRef.current = camera.rotation.x;
-      camera.rotation.z = 0;
+
+      const { yaw, pitch } = applyCameraLookAt(camera, currentPos, currentLook);
+      yawRef.current = yaw;
+      pitchRef.current = pitch;
 
       if (t >= 1) {
         transitionRef.current = null;
-        camera.position.copy(endPos);
-        camera.lookAt(endLookAt);
-        camera.rotation.order = 'YXZ';
-        yawRef.current = camera.rotation.y;
-        pitchRef.current = camera.rotation.x;
-        camera.rotation.z = 0;
+        const final = applyCameraLookAt(camera, endPos, endLookAt);
+        yawRef.current = final.yaw;
+        pitchRef.current = final.pitch;
       }
     } else {
       // 2. Flight Movement based on keys
