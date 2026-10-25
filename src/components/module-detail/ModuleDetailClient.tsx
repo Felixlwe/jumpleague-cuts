@@ -45,6 +45,7 @@ function useIsMounted(): boolean {
 
 function ClientModuleDetailHud() {
   const activeMode = useJLStore((s) => s.activeMode);
+  const selectedCutId = useJLStore((s) => s.selectedCutId);
 
   return (
     <div className="pointer-events-none fixed inset-0 z-10 flex flex-col justify-between p-4 sm:p-5">
@@ -58,7 +59,7 @@ function ClientModuleDetailHud() {
           <AdminReviewPanel />
         ) : (
           <div className="flex max-h-[calc(100vh-110px)] w-full max-w-md flex-col items-end gap-2 overflow-hidden">
-            <FilterDrawer />
+            {!selectedCutId && <FilterDrawer />}
             <RightCutPanel />
           </div>
         )}

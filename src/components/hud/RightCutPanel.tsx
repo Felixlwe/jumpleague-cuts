@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   ArrowUpDown,
   Timer,
@@ -12,6 +12,9 @@ import {
   Crosshair,
   Sparkles,
   User,
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { useJLStore, doesCutMatchFilters } from '@/store/useJLStore';
 import {
@@ -74,6 +77,29 @@ export const RightCutPanel: React.FC = () => {
     [cuts, selectedCutId]
   );
 
+  const currentIndex = useMemo(() => {
+    if (!selectedCut) return -1;
+    return moduleCuts.findIndex((c) => c.id === selectedCut.id);
+  }, [moduleCuts, selectedCut]);
+
+  const prevCut = currentIndex > 0 ? moduleCuts[currentIndex - 1] : null;
+  const nextCut =
+    currentIndex >= 0 && currentIndex < moduleCuts.length - 1
+      ? moduleCuts[currentIndex + 1]
+      : null;
+
+  // Escape key deselects cut
+  useEffect(() => {
+    if (!selectedCut) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        selectCut(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedCut, selectCut]);
+
   const handleRefocusCamera = () => {
     if (!selectedCut) return;
     const id = selectedCut.id;
@@ -81,174 +107,104 @@ export const RightCutPanel: React.FC = () => {
     setTimeout(() => selectCut(id), 15);
   };
 
-  return (
-    <aside className="pointer-events-auto flex min-h-0 flex-1 w-full flex-col bg-zinc-950/75 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl text-zinc-100 overflow-hidden">
-      {/* ================================================================= */}
-      {/* TOP SECTION: MODULE CUT LIST & SORT CONTROLS                      */}
-      {/* ================================================================= */}
-      <div className="border-b border-white/10 p-4 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
-            Verfügbare Abkürzungen ({moduleCuts.length})
-          </h2>
+  // =========================================================================
+  // VIEW MODE A: SINGLE SELECTED CUT (Available Cuts HUD is hidden)
+  // =========================================================================
+  if (selectedCut) {
+    const diffCfg = CUT_DIFFICULTY_CONFIG[selectedCut.difficulty];
 
-          {/* Sort Switcher: Zeitersparnis vs. Schwierigkeit */}
-          <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-zinc-900/80 p-1">
+    return (
+      <aside className="pointer-events-auto flex min-h-0 flex-1 w-full flex-col bg-zinc-950/85 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl text-zinc-100 overflow-hidden">
+        {/* Navigation & Actions Top Bar */}
+        <div className="flex items-center justify-between border-b border-white/10 bg-zinc-900/60 p-3 sm:px-4 sm:py-3 gap-2">
+          <button
+            type="button"
+            onClick={() => selectCut(null)}
+            className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-zinc-800/80 px-2.5 py-1 text-xs font-semibold text-zinc-300 hover:bg-white/15 hover:text-white transition"
+            title="Zurück zur Liste aller Cuts"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            <span>Zurück</span>
+          </button>
+
+          {moduleCuts.length > 1 && currentIndex >= 0 && (
+            <div className="flex items-center gap-1 text-zinc-400 font-mono text-[11px]">
+              <button
+                type="button"
+                disabled={!prevCut}
+                onClick={() => prevCut && selectCut(prevCut.id)}
+                className="rounded p-1 hover:bg-white/10 text-zinc-300 disabled:opacity-30 disabled:hover:bg-transparent transition"
+                title="Vorheriger Cut"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span>
+                {currentIndex + 1} / {moduleCuts.length}
+              </span>
+              <button
+                type="button"
+                disabled={!nextCut}
+                onClick={() => nextCut && selectCut(nextCut.id)}
+                className="rounded p-1 hover:bg-white/10 text-zinc-300 disabled:opacity-30 disabled:hover:bg-transparent transition"
+                title="Nächster Cut"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => setSortBy('TIME_SAVED')}
-              title="Nach Zeitersparnis sortieren"
-              className={`flex items-center gap-1 rounded-lg px-2 py-1 font-mono text-[10px] font-bold transition ${
-                sortBy === 'TIME_SAVED'
-                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
+              onClick={handleRefocusCamera}
+              title="3D-Kamera erneut auf Cut-Lineup ausrichten"
+              className="flex items-center gap-1 rounded-lg border border-cyan-400/40 bg-cyan-500/15 px-2 py-1 font-mono text-[10px] font-bold text-cyan-300 hover:bg-cyan-500/25 hover:text-white transition"
             >
-              <Timer className="h-3 w-3" />
-              <span>Zeit</span>
+              <Focus className="h-3 w-3" />
+              <span>Fokus</span>
             </button>
 
             <button
               type="button"
-              onClick={() => setSortBy('DIFFICULTY')}
-              title="Nach Schwierigkeit sortieren"
-              className={`flex items-center gap-1 rounded-lg px-2 py-1 font-mono text-[10px] font-bold transition ${
-                sortBy === 'DIFFICULTY'
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
+              onClick={() => selectCut(null)}
+              title="Cut schließen"
+              className="rounded-lg border border-white/10 bg-zinc-900/80 p-1 text-zinc-400 hover:bg-white/10 hover:text-white transition"
             >
-              <Flame className="h-3 w-3" />
-              <span>Risiko</span>
+              <X className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
 
-        {/* Scrollable Cut Cards List */}
-        <div
-          className={`space-y-1.5 overflow-y-auto pr-1 transition-all duration-300 ${
-            selectedCut ? 'max-h-44' : 'max-h-[calc(100vh-230px)]'
-          }`}
-        >
-          {moduleCuts.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-white/10 p-5 text-center text-xs text-zinc-400">
-              Keine Cuts für die aktuellen Filter in Modul{' '}
-              <span className="font-mono text-white">{selectedModuleId}</span>{' '}
-              gefunden.
-            </div>
-          ) : (
-            moduleCuts.map((cut) => {
-              const isSelected = cut.id === selectedCutId;
-              const isHovered = cut.id === hoveredCutId;
-              const diffCfg = CUT_DIFFICULTY_CONFIG[cut.difficulty];
-
-              return (
-                <button
-                  key={cut.id}
-                  type="button"
-                  onClick={() => selectCut(cut.id)}
-                  onMouseEnter={() => setHoveredCut(cut.id)}
-                  onMouseLeave={() => setHoveredCut(null)}
-                  className={`group w-full rounded-xl border p-2.5 text-left transition-all duration-200 ${
-                    isSelected
-                      ? 'bg-white/15 border-white/40 shadow-lg ring-1 ring-white/20'
-                      : isHovered
-                        ? 'bg-white/10 border-white/25'
-                        : 'bg-zinc-900/55 border-white/10 hover:bg-white/10 hover:border-white/20'
-                  }`}
+        {/* Scrollable Cut Details */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
+          {/* Title & Badges */}
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span
+                  className="h-2.5 w-2.5 rounded-full shrink-0"
+                  style={{
+                    backgroundColor: diffCfg.color,
+                    boxShadow: `0 0 10px ${diffCfg.color}`,
+                  }}
+                />
+                <span
+                  className="font-mono text-[10px] font-bold uppercase tracking-wider"
+                  style={{ color: diffCfg.color }}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className="h-2.5 w-2.5 rounded-full shrink-0"
-                        style={{
-                          backgroundColor: diffCfg.color,
-                          boxShadow: `0 0 8px ${diffCfg.color}`,
-                        }}
-                      />
-                      <span
-                        className="font-mono text-[10px] font-bold uppercase tracking-wider"
-                        style={{ color: diffCfg.color }}
-                      >
-                        {diffCfg.shortLabel}
-                      </span>
-                    </div>
+                  {diffCfg.label}
+                </span>
+              </div>
 
-                    <span className="flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-300">
-                      <Timer className="h-3 w-3" />-
-                      {cut.timeSavedSeconds.toFixed(1)}s
-                    </span>
-                  </div>
-
-                  <div className="mt-1 flex items-center justify-between gap-2">
-                    <h3 className="truncate text-xs font-bold text-zinc-100 group-hover:text-white">
-                      {cut.name}
-                    </h3>
-
-                    <div
-                      className="flex shrink-0 items-center gap-0.5"
-                      title={`Konstanz: ${cut.consistencyRating}/5 Sterne`}
-                    >
-                      {[1, 2, 3, 4, 5].map((s) => (
-                        <Star
-                          key={s}
-                          className={`h-2.5 w-2.5 ${
-                            s <= cut.consistencyRating
-                              ? 'fill-amber-400 text-amber-400'
-                              : 'text-zinc-700'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
-      </div>
-
-      {/* ================================================================= */}
-      {/* EXPANDABLE PICTURE-IN-PICTURE VIDEO & LINEUP INSPECTOR CARD       */}
-      {/* ================================================================= */}
-      {selectedCut ? (
-        <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-zinc-950/60">
-          {/* Picture-in-Picture Header Bar */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <span
-                className="h-2.5 w-2.5 rounded-full shrink-0"
-                style={{
-                  backgroundColor:
-                    CUT_DIFFICULTY_CONFIG[selectedCut.difficulty].color,
-                  boxShadow: `0 0 10px ${CUT_DIFFICULTY_CONFIG[selectedCut.difficulty].color}`,
-                }}
-              />
-              <h3 className="truncate text-sm font-bold text-white">
-                {selectedCut.name}
-              </h3>
+              <span className="flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 font-mono text-xs font-bold text-emerald-300">
+                <Timer className="h-3.5 w-3.5" />
+                -{selectedCut.timeSavedSeconds.toFixed(1)}s ERSPARNIS
+              </span>
             </div>
 
-            <div className="flex items-center gap-1.5 shrink-0">
-              <button
-                type="button"
-                onClick={handleRefocusCamera}
-                title="3D-Kamera erneut auf Cut-Lineup ausrichten"
-                className="flex items-center gap-1 rounded-lg border border-cyan-400/40 bg-cyan-500/15 px-2 py-1 font-mono text-[10px] font-bold text-cyan-300 hover:bg-cyan-500/25 hover:text-white transition"
-              >
-                <Focus className="h-3 w-3" />
-                <span>Kamera-Fokus</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => selectCut(null)}
-                title="Video-Card schließen"
-                className="rounded-lg border border-white/10 bg-zinc-900/80 p-1 text-zinc-400 hover:bg-white/10 hover:text-white transition"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
+            <h2 className="mt-1.5 text-base sm:text-lg font-bold text-white tracking-tight">
+              {selectedCut.name}
+            </h2>
           </div>
 
           {/* Picture-in-Picture Video Player Card */}
@@ -256,7 +212,7 @@ export const RightCutPanel: React.FC = () => {
             <div className="flex items-center justify-between border-b border-white/10 bg-zinc-900/90 px-3 py-1.5">
               <span className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-cyan-400">
                 <Video className="h-3.5 w-3.5" />
-                {`PIP // POV LINEUP-CLIP (LOOP)`}
+                POV LINEUP-CLIP
               </span>
               <span className="font-mono text-[11px] font-extrabold text-emerald-400">
                 -{selectedCut.timeSavedSeconds.toFixed(1)}s SAVED
@@ -343,25 +299,29 @@ export const RightCutPanel: React.FC = () => {
           </div>
 
           {/* Movement-Technique Badges */}
-          <div className="space-y-1.5">
-            <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-400">
-              Movement-Techniken
+          {selectedCut.techniques && selectedCut.techniques.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-400">
+                Movement-Techniken
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {selectedCut.techniques.map((tech) => (
+                  <div
+                    key={tech}
+                    title={MOVEMENT_TECH_CONFIG[tech]?.description}
+                    className="flex items-center gap-1.5 rounded-lg border border-cyan-500/35 bg-cyan-500/15 px-2.5 py-1 font-mono text-[11px] font-bold text-cyan-300 shadow-sm"
+                  >
+                    <span>{tech}</span>
+                    {MOVEMENT_TECH_CONFIG[tech]?.label && (
+                      <span className="text-[10px] font-normal text-cyan-100/80">
+                        ({MOVEMENT_TECH_CONFIG[tech].label})
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {selectedCut.techniques.map((tech) => (
-                <div
-                  key={tech}
-                  title={MOVEMENT_TECH_CONFIG[tech].description}
-                  className="flex items-center gap-1.5 rounded-lg border border-cyan-500/35 bg-cyan-500/15 px-2.5 py-1 font-mono text-[11px] font-bold text-cyan-300 shadow-sm"
-                >
-                  <span>{tech}</span>
-                  <span className="text-[10px] font-normal text-cyan-100/80">
-                    ({MOVEMENT_TECH_CONFIG[tech].label})
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+          )}
 
           {/* Step-by-Step Lineup Description */}
           <div className="rounded-xl border border-white/10 bg-zinc-900/55 p-3.5 space-y-2">
@@ -372,7 +332,7 @@ export const RightCutPanel: React.FC = () => {
               </span>
               <span className="flex items-center gap-1 font-mono text-[10px] text-zinc-400">
                 <User className="h-3 w-3" />
-                {selectedCut.submittedBy}
+                {selectedCut.submittedBy || 'Anonym'}
               </span>
             </div>
 
@@ -398,14 +358,138 @@ export const RightCutPanel: React.FC = () => {
             </div>
           </div>
         </div>
-      ) : (
-        <div className="flex items-center justify-between bg-zinc-900/40 px-4 py-2.5 font-mono text-[11px] text-zinc-400">
-          <span className="flex items-center gap-1.5">
-            <ArrowUpDown className="h-3.5 w-3.5 text-cyan-400" />
-            Klicke einen Cut oder 3D-Bogen für PiP-Video &amp; Kamera-Flug
-          </span>
+      </aside>
+    );
+  }
+
+  // =========================================================================
+  // VIEW MODE B: ALL AVAILABLE CUTS LIST
+  // =========================================================================
+  return (
+    <aside className="pointer-events-auto flex min-h-0 flex-1 w-full flex-col bg-zinc-950/75 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl text-zinc-100 overflow-hidden">
+      {/* Header with Title and Sort Controls */}
+      <div className="border-b border-white/10 p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
+            Verfügbare Abkürzungen ({moduleCuts.length})
+          </h2>
+
+          {/* Sort Switcher: Zeitersparnis vs. Schwierigkeit */}
+          <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-zinc-900/80 p-1">
+            <button
+              type="button"
+              onClick={() => setSortBy('TIME_SAVED')}
+              title="Nach Zeitersparnis sortieren"
+              className={`flex items-center gap-1 rounded-lg px-2 py-1 font-mono text-[10px] font-bold transition ${
+                sortBy === 'TIME_SAVED'
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Timer className="h-3 w-3" />
+              <span>Zeit</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSortBy('DIFFICULTY')}
+              title="Nach Schwierigkeit sortieren"
+              className={`flex items-center gap-1 rounded-lg px-2 py-1 font-mono text-[10px] font-bold transition ${
+                sortBy === 'DIFFICULTY'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Flame className="h-3 w-3" />
+              <span>Risiko</span>
+            </button>
+          </div>
         </div>
-      )}
+      </div>
+
+      {/* Scrollable Cut Cards List */}
+      <div className="flex-1 space-y-1.5 overflow-y-auto p-4 pr-3 max-h-[calc(100vh-230px)]">
+        {moduleCuts.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-white/10 p-5 text-center text-xs text-zinc-400">
+            Keine Cuts für die aktuellen Filter in Modul{' '}
+            <span className="font-mono text-white">{selectedModuleId}</span>{' '}
+            gefunden.
+          </div>
+        ) : (
+          moduleCuts.map((cut) => {
+            const isHovered = cut.id === hoveredCutId;
+            const diffCfg = CUT_DIFFICULTY_CONFIG[cut.difficulty];
+
+            return (
+              <button
+                key={cut.id}
+                type="button"
+                onClick={() => selectCut(cut.id)}
+                onMouseEnter={() => setHoveredCut(cut.id)}
+                onMouseLeave={() => setHoveredCut(null)}
+                className={`group w-full rounded-xl border p-2.5 text-left transition-all duration-200 ${
+                  isHovered
+                    ? 'bg-white/10 border-white/25 scale-[1.01]'
+                    : 'bg-zinc-900/55 border-white/10 hover:bg-white/10 hover:border-white/20'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className="h-2.5 w-2.5 rounded-full shrink-0"
+                      style={{
+                        backgroundColor: diffCfg.color,
+                        boxShadow: `0 0 8px ${diffCfg.color}`,
+                      }}
+                    />
+                    <span
+                      className="font-mono text-[10px] font-bold uppercase tracking-wider"
+                      style={{ color: diffCfg.color }}
+                    >
+                      {diffCfg.shortLabel}
+                    </span>
+                  </div>
+
+                  <span className="flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-300">
+                    <Timer className="h-3 w-3" />-
+                    {cut.timeSavedSeconds.toFixed(1)}s
+                  </span>
+                </div>
+
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <h3 className="truncate text-xs font-bold text-zinc-100 group-hover:text-white">
+                    {cut.name}
+                  </h3>
+
+                  <div
+                    className="flex shrink-0 items-center gap-0.5"
+                    title={`Konstanz: ${cut.consistencyRating}/5 Sterne`}
+                  >
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star
+                        key={s}
+                        className={`h-2.5 w-2.5 ${
+                          s <= cut.consistencyRating
+                            ? 'fill-amber-400 text-amber-400'
+                            : 'text-zinc-700'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      {/* Footer hint */}
+      <div className="flex items-center justify-between border-t border-white/10 bg-zinc-900/40 px-4 py-2.5 font-mono text-[11px] text-zinc-400">
+        <span className="flex items-center gap-1.5">
+          <ArrowUpDown className="h-3.5 w-3.5 text-cyan-400" />
+          Klicke einen Cut oder 3D-Bogen zum Auswählen
+        </span>
+      </div>
     </aside>
   );
 };
