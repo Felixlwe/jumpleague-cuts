@@ -50,7 +50,7 @@ export const SubmissionModal: React.FC = () => {
 
   const [submittedBy, setSubmittedBy] = useState('');
   const [name, setName] = useState('');
-  const [timeSavedSeconds, setTimeSavedSeconds] = useState<number>(2.1);
+  const [timeSavedSeconds, setTimeSavedSeconds] = useState<string>('2.1');
   const [difficulty, setDifficulty] = useState<CutDifficulty>('MEDIUM');
   const [consistencyRating, setConsistencyRating] = useState<number>(4);
   const [techniques, setTechniques] = useState<MovementTech[]>(['STRAFE_45']);
@@ -90,15 +90,9 @@ export const SubmissionModal: React.FC = () => {
       return;
     }
 
-    const trimmedAuthor = submittedBy.trim();
     const trimmedName = name.trim();
-    const trimmedDesc = description.trim();
-    const trimmedVideo = videoUrl.trim();
-
-    if (!trimmedAuthor || !trimmedName || !trimmedDesc) {
-      setErrorMessage(
-        'Bitte fülle deinen Spielernamen, den Cut-Namen und die Lineup-Erklärung aus.'
-      );
+    if (!trimmedName) {
+      setErrorMessage('Bitte gib einen Cut-Namen ein.');
       return;
     }
 
@@ -109,6 +103,10 @@ export const SubmissionModal: React.FC = () => {
       return;
     }
 
+    const trimmedAuthor = submittedBy.trim() || 'Community';
+    const trimmedDesc = description.trim();
+    const trimmedVideo = videoUrl.trim();
+
     if (trimmedDesc.length > MAX_CUT_DESCRIPTION_LENGTH) {
       setErrorMessage(
         `Die Lineup-Erklärung darf maximal ${MAX_CUT_DESCRIPTION_LENGTH} Zeichen lang sein (aktuell: ${trimmedDesc.length}).`
@@ -116,28 +114,22 @@ export const SubmissionModal: React.FC = () => {
       return;
     }
 
-    if (videoSourceType === 'URL') {
-      if (!trimmedVideo) {
-        setErrorMessage(
-          'Bitte gib eine Video-URL für den Cut an (z. B. YouTube oder .mp4 / .webm).'
-        );
-        return;
-      }
-
+    // Video ist optional. Falls angegeben (URL), Format auf YouTube oder .mp4/.webm prüfen:
+    if (trimmedVideo && videoSourceType === 'URL') {
       if (!isValidVideoUrl(trimmedVideo)) {
         setErrorMessage(
           'Ungültige Video-URL: Erlaubt sind ausschließlich sichere https://-Links von YouTube (youtube.com, youtu.be) oder direkte .mp4 / .webm Videodateien.'
         );
         return;
       }
-    } else {
-      if (!trimmedVideo || !localVideoName) {
-        setErrorMessage(
-          'Bitte wähle eine lokale .mp4 oder .webm Videodatei als Beweis-Clip aus.'
-        );
-        return;
-      }
     }
+
+    // Zeitersparnis parsen (falls leer, Standard 1.0s verwenden)
+    const parsedTime = parseFloat(timeSavedSeconds);
+    const validatedTimeSaved =
+      !isNaN(parsedTime) && parsedTime > 0
+        ? Number(parsedTime.toFixed(1))
+        : 1.0;
 
     const camPos = draftCameraPosition ?? liveCameraPosition;
     const camTarget = draftCameraTarget ?? liveCameraTarget;
@@ -146,7 +138,7 @@ export const SubmissionModal: React.FC = () => {
       moduleId: selectedModuleId,
       name: trimmedName.slice(0, MAX_CUT_NAME_LENGTH),
       description: trimmedDesc.slice(0, MAX_CUT_DESCRIPTION_LENGTH),
-      timeSavedSeconds: Number(timeSavedSeconds),
+      timeSavedSeconds: validatedTimeSaved,
       difficulty,
       consistencyRating,
       techniques: techniques.length > 0 ? techniques : ['TIMING'],
@@ -171,6 +163,7 @@ export const SubmissionModal: React.FC = () => {
     setDescription('');
     setVideoUrl('');
     setLocalVideoName(null);
+    setTimeSavedSeconds('2.1');
     setSubmittedSuccess(true);
   };
 
@@ -335,12 +328,11 @@ export const SubmissionModal: React.FC = () => {
           <div className="grid grid-cols-2 gap-2.5">
             <div>
               <div className="mb-1 flex items-center justify-between font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                <span>Spielername *</span>
+                <span>Spielername (optional)</span>
                 <span className="text-[9px] text-zinc-500">max. {MAX_CUT_AUTHOR_LENGTH}</span>
               </div>
               <input
                 type="text"
-                required
                 maxLength={MAX_CUT_AUTHOR_LENGTH}
                 value={submittedBy}
                 onChange={(e) => setSubmittedBy(e.target.value)}
@@ -351,18 +343,16 @@ export const SubmissionModal: React.FC = () => {
 
             <div>
               <label className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                Zeitersparnis (Sek.) *
+                Zeitersparnis (Sek.)
               </label>
               <input
                 type="number"
                 step="0.1"
                 min="0.1"
                 max="15"
-                required
                 value={timeSavedSeconds}
-                onChange={(e) =>
-                  setTimeSavedSeconds(parseFloat(e.target.value) || 0.5)
-                }
+                onChange={(e) => setTimeSavedSeconds(e.target.value)}
+                placeholder="z.B. 2.1"
                 className="w-full rounded-xl border border-white/10 bg-zinc-900/80 px-3 py-2 font-mono text-xs font-bold text-emerald-400 focus:border-cyan-400/60 focus:outline-none"
               />
             </div>
@@ -479,18 +469,17 @@ export const SubmissionModal: React.FC = () => {
         <div className="space-y-2.5">
           <div>
             <div className="mb-1 flex items-center justify-between font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-              <span>Lineup-Erklärung (Schritt für Schritt) *</span>
+              <span>Lineup-Erklärung (optional)</span>
               <span className={`text-[9px] ${description.length >= MAX_CUT_DESCRIPTION_LENGTH ? 'text-amber-400 font-bold' : 'text-zinc-500'}`}>
                 {description.length}/{MAX_CUT_DESCRIPTION_LENGTH}
               </span>
             </div>
             <textarea
               rows={3}
-              required
               maxLength={MAX_CUT_DESCRIPTION_LENGTH}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="1. Stelle dich an die rechte Kante von...\n2. Ziele auf die Eichenstufe...\n3. Springe im 45°-Strafe ab..."
+              placeholder="Optional: 1. Stelle dich an die rechte Kante von...\n2. Ziele auf die Eichenstufe...\n3. Springe im 45°-Strafe ab..."
               className="w-full rounded-xl border border-white/10 bg-zinc-900/80 p-2.5 text-xs text-white placeholder-zinc-500 focus:border-cyan-400/60 focus:outline-none"
             />
           </div>
@@ -499,7 +488,7 @@ export const SubmissionModal: React.FC = () => {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                Beweis- &amp; Erklär-Video
+                Beweis- &amp; Erklär-Video (optional)
               </label>
 
               <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-zinc-900/80 p-0.5">
@@ -535,7 +524,7 @@ export const SubmissionModal: React.FC = () => {
                 type="url"
                 value={videoUrl}
                 onChange={(e) => setVideoUrl(e.target.value)}
-                placeholder="https://... (.mp4, .webm oder YouTube-URL)"
+                placeholder="Optional: https://... (.mp4, .webm oder YouTube-URL)"
                 className="w-full rounded-xl border border-white/10 bg-zinc-900/80 px-3 py-2 font-mono text-[11px] text-zinc-200 placeholder-zinc-500 focus:border-cyan-400/60 focus:outline-none"
               />
             ) : (
@@ -547,18 +536,34 @@ export const SubmissionModal: React.FC = () => {
                   onChange={handleLocalFileChange}
                   className="hidden"
                 />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-cyan-400/40 bg-zinc-900/70 py-3 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/10 transition"
-                >
-                  <Upload className="h-4 w-4" />
-                  <span>
-                    {localVideoName
-                      ? `Ausgewählt: ${localVideoName}`
-                      : 'Lokale .mp4 / .webm Datei auswählen'}
-                  </span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-dashed border-cyan-400/40 bg-zinc-900/70 py-3 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/10 transition"
+                  >
+                    <Upload className="h-4 w-4" />
+                    <span className="truncate">
+                      {localVideoName
+                        ? `Ausgewählt: ${localVideoName}`
+                        : 'Optional: Lokale .mp4 / .webm Datei auswählen'}
+                    </span>
+                  </button>
+                  {localVideoName && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVideoUrl('');
+                        setLocalVideoName(null);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                      }}
+                      title="Ausgewählte Datei entfernen"
+                      className="rounded-xl border border-white/10 bg-zinc-900/70 p-3 text-zinc-400 hover:bg-rose-500/20 hover:text-rose-300 transition"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>

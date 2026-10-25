@@ -322,33 +322,40 @@ export const AdminReviewPanel: React.FC = () => {
             </div>
 
             <div className="relative aspect-video w-full bg-zinc-950">
-              {(() => {
-                const ytEmbed = parseYouTubeEmbedUrl(selectedCut.videoUrl);
-                if (ytEmbed) {
+              {selectedCut.videoUrl ? (
+                (() => {
+                  const ytEmbed = parseYouTubeEmbedUrl(selectedCut.videoUrl);
+                  if (ytEmbed) {
+                    return (
+                      <iframe
+                        key={selectedCut.id}
+                        src={ytEmbed}
+                        title={selectedCut.name}
+                        className="h-full w-full"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                    );
+                  }
                   return (
-                    <iframe
-                      key={selectedCut.id}
-                      src={ytEmbed}
-                      title={selectedCut.name}
-                      className="h-full w-full"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
+                    <video
+                      key={selectedCut.videoUrl}
+                      src={selectedCut.videoUrl}
+                      autoPlay
+                      loop
+                      muted
+                      controls
+                      playsInline
+                      className="h-full w-full object-cover"
                     />
                   );
-                }
-                return (
-                  <video
-                    key={selectedCut.videoUrl}
-                    src={selectedCut.videoUrl}
-                    autoPlay
-                    loop
-                    muted
-                    controls
-                    playsInline
-                    className="h-full w-full object-cover"
-                  />
-                );
-              })()}
+                })()
+              ) : (
+                <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 p-4 text-center">
+                  <Video className="h-6 w-6 text-zinc-600" />
+                  <span className="text-xs text-zinc-500">Kein Video-Beweis hinterlegt</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -429,12 +436,17 @@ export const AdminReviewPanel: React.FC = () => {
                 step="0.1"
                 min="0.1"
                 max="15"
-                value={selectedCut.timeSavedSeconds}
+                value={selectedCut.timeSavedSeconds === 0 ? '' : selectedCut.timeSavedSeconds}
                 onChange={(e) =>
                   updateCut(selectedCut.id, {
-                    timeSavedSeconds: parseFloat(e.target.value) || 0.5,
+                    timeSavedSeconds: e.target.value === '' ? 0 : parseFloat(e.target.value) || 0,
                   })
                 }
+                onBlur={() => {
+                  if (!selectedCut.timeSavedSeconds || selectedCut.timeSavedSeconds <= 0) {
+                    updateCut(selectedCut.id, { timeSavedSeconds: 1.0 });
+                  }
+                }}
                 className="w-full rounded-lg border border-white/10 bg-zinc-950/90 px-2.5 py-1 font-mono text-xs font-extrabold text-emerald-400 focus:border-purple-400 focus:outline-none"
               />
             </div>
