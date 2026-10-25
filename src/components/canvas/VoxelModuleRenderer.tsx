@@ -1,9 +1,16 @@
 'use client';
 
-import React, { useMemo, useEffect, useCallback } from 'react';
+import React, {
+  useMemo,
+  useEffect,
+  useCallback,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { Edges } from '@react-three/drei';
-import { ThreeEvent } from '@react-three/fiber';
+import { ThreeEvent, useThree, useFrame } from '@react-three/fiber';
 import { VoxelBlock, Vector3D } from '@/types/jumpleague';
 import { useJLStore } from '@/store/useJLStore';
 import { VOXEL_BLOCK_LABELS } from '@/constants/jumpleagueConfig';
@@ -16,6 +23,511 @@ import {
   getTranslucentAtlasMaterial,
 } from '@/lib/mcmetaLoader';
 
+/**
+ * Bottom control hint for Minecraft-Spectator flight controls
+ */
+const SpectatorControlsHint: React.FC = () => {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className="pointer-events-none fixed bottom-4 left-1/2 z-20 -translate-x-1/2 select-none">
+      <div className="flex items-center gap-2 rounded-full border border-white/10 bg-zinc-950/80 px-4 py-1.5 font-mono text-[11px] text-zinc-300 shadow-2xl backdrop-blur-md">
+        <span className="font-semibold text-cyan-400">WASD</span>: Bewegen
+        <span className="text-zinc-600">|</span>
+        <span className="font-semibold text-cyan-400">Space/Shift</span>: Hoch/Runter
+        <span className="text-zinc-600">|</span>
+        <span className="font-semibold text-cyan-400">Rechtsklick halten</span>: Umschauen
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+/**
+ * Minecraft Spectator Flight Controller (FlyControls):
+ * - W / S: Fly forward / backward in camera's horizontal XZ direction
+ * - A / D: Strafe left / right on horizontal XZ plane
+ * - Space: Ascend (+Y)
+ * - Shift: Descend (-Y)
+ * - Ctrl: Speed boost (2x speed while held)
+ * - Right-Click Hold: Free-look rotation (yaw / pitch) with pointer lock & fallback
+ * - Mouse Wheel: Smooth zoom / step along view vector
+ * - Smooth transition when selecting cuts or switching modules
+ * - Synchronizes liveCameraPosition & liveCameraTarget (8 blocks ahead)
+ */
+const MinecraftSpectatorControls: React.FC = () => {
+  const { camera, gl } = useThree();
+
+  const selectedCutId = useJLStore((s) => s.selectedCutId);
+  const selectedModuleId = useJLStore((s) => s.selectedModuleId);
+  const cameraResetCounter = useJLStore((s) => s.cameraResetCounter);
+  const cuts = useJLStore((s) => s.cuts);
+  const modules = useJLStore((s) => s.modules);
+  const isDraggingInScene = useJLStore((s) => s.isDraggingInScene);
+  const setLiveCameraState = useJLStore((s) => s.setLiveCameraState);
+
+  // Active module lookup
+  const currentModule = useMemo(() => {
+    if (!selectedModuleId) return modules[0] ?? null;
+    const target = selectedModuleId.trim().toLowerCase().replace(/^#+/, '');
+    return (
+      modules.find((m) => {
+        const mId = m.id.toLowerCase().replace(/^#+/, '');
+        const mShort = (m.shortCode || '').toLowerCase().replace(/^#+/, '');
+        return mId === target || mShort === target;
+      }) ??
+      modules[0] ??
+      null
+    );
+  }, [modules, selectedModuleId]);
+
+  // Camera angles in radians
+  const yawRef = useRef<number>(0);
+  const pitchRef = useRef<number>(0);
+
+  // Mouse interaction state
+  const isRightMouseDown = useRef<boolean>(false);
+  const lastMousePos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Pressed keys tracking
+  const keysPressed = useRef<Set<string>>(new Set());
+
+  // Initial mount flag to prevent unnecessary transition on first load
+  const isInitialMount = useRef<boolean>(true);
+
+  // Camera glide / transition state
+  const transitionRef = useRef<{
+    startPos: THREE.Vector3;
+    endPos: THREE.Vector3;
+    startLookAt: THREE.Vector3;
+    endLookAt: THREE.Vector3;
+    startTime: number;
+    duration: number;
+  } | null>(null);
+
+  // Throttled live camera state tracking
+  const lastSyncedPos = useRef<THREE.Vector3>(new THREE.Vector3());
+  const lastSyncedTarget = useRef<THREE.Vector3>(new THREE.Vector3());
+
+  // Helper to trigger a smooth camera glide to a new position & look target
+  const startTransition = useCallback(
+    (targetPos: THREE.Vector3, targetLookAt: THREE.Vector3, duration = 0.45) => {
+      const currentPos = camera.position.clone();
+      const forward = new THREE.Vector3();
+      camera.getWorldDirection(forward);
+      const currentLookAt = currentPos.clone().add(forward.multiplyScalar(8));
+
+      transitionRef.current = {
+        startPos: currentPos,
+        endPos: targetPos.clone(),
+        startLookAt: currentLookAt,
+        endLookAt: targetLookAt.clone(),
+        startTime: performance.now(),
+        duration: duration * 1000,
+      };
+    },
+    [camera]
+  );
+
+  // Glide to cut position when selectedCutId changes
+  useEffect(() => {
+    if (selectedCutId) {
+      const cut = cuts.find((c) => c.id === selectedCutId);
+      if (cut && cut.cameraPosition && cut.cameraTarget) {
+        const targetPos = new THREE.Vector3(
+          cut.cameraPosition.x,
+          cut.cameraPosition.y,
+          cut.cameraPosition.z
+        );
+        const targetLookAt = new THREE.Vector3(
+          cut.cameraTarget.x,
+          cut.cameraTarget.y,
+          cut.cameraTarget.z
+        );
+
+        if (isInitialMount.current) {
+          isInitialMount.current = false;
+          camera.position.copy(targetPos);
+          camera.lookAt(targetLookAt);
+          camera.rotation.order = 'YXZ';
+          yawRef.current = camera.rotation.y;
+          pitchRef.current = camera.rotation.x;
+          camera.rotation.z = 0;
+        } else {
+          startTransition(targetPos, targetLookAt, 0.45);
+        }
+      }
+    }
+  }, [selectedCutId, cuts, camera, startTransition]);
+
+  // Glide to module overview on module change or camera reset
+  useEffect(() => {
+    const state = useJLStore.getState();
+    if (state.selectedCutId) {
+      const activeCut = state.cuts.find((c) => c.id === state.selectedCutId);
+      if (
+        activeCut &&
+        activeCut.moduleId === selectedModuleId &&
+        activeCut.cameraPosition &&
+        activeCut.cameraTarget
+      ) {
+        const targetPos = new THREE.Vector3(
+          activeCut.cameraPosition.x,
+          activeCut.cameraPosition.y,
+          activeCut.cameraPosition.z
+        );
+        const targetLookAt = new THREE.Vector3(
+          activeCut.cameraTarget.x,
+          activeCut.cameraTarget.y,
+          activeCut.cameraTarget.z
+        );
+
+        if (isInitialMount.current) {
+          isInitialMount.current = false;
+          camera.position.copy(targetPos);
+          camera.lookAt(targetLookAt);
+          camera.rotation.order = 'YXZ';
+          yawRef.current = camera.rotation.y;
+          pitchRef.current = camera.rotation.x;
+          camera.rotation.z = 0;
+        } else {
+          startTransition(targetPos, targetLookAt, 0.45);
+        }
+        return;
+      }
+    }
+
+    const dims = currentModule?.dimensions || { x: 12, y: 12, z: 24 };
+    const dimZ = Number(dims.z) || 24;
+    const dimY = Number(dims.y) || 12;
+    const midZ = dimZ * 0.46;
+    const camX = Math.max(18, dimZ * 0.45);
+    const camY = Math.max(13, dimY * 1.45);
+    const camZ = midZ - dimZ * 0.25;
+
+    const targetPos = new THREE.Vector3(camX, camY, camZ);
+    const targetLookAt = new THREE.Vector3(0, 4.2, midZ);
+
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      camera.position.copy(targetPos);
+      camera.lookAt(targetLookAt);
+      camera.rotation.order = 'YXZ';
+      yawRef.current = camera.rotation.y;
+      pitchRef.current = camera.rotation.x;
+      camera.rotation.z = 0;
+    } else {
+      startTransition(targetPos, targetLookAt, 0.45);
+    }
+  }, [
+    selectedModuleId,
+    cameraResetCounter,
+    currentModule,
+    camera,
+    startTransition,
+  ]);
+
+  // Input event listeners (keyboard, right-click look, wheel, pointer lock)
+  useEffect(() => {
+    const canvas = gl.domElement;
+    if (!canvas) return;
+
+    camera.rotation.order = 'YXZ';
+
+    const isTyping = () => {
+      if (typeof document === 'undefined') return false;
+      const el = document.activeElement;
+      if (!el) return false;
+      const tag = el.tagName.toUpperCase();
+      return (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        (el as HTMLElement).isContentEditable
+      );
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isTyping()) {
+        keysPressed.current.clear();
+        return;
+      }
+
+      // Prevent Space from scrolling webpage down
+      if (e.code === 'Space') {
+        e.preventDefault();
+      }
+
+      keysPressed.current.add(e.code);
+      if (e.ctrlKey) keysPressed.current.add('Control');
+      if (e.shiftKey) keysPressed.current.add('Shift');
+
+      // If user starts manual flight keys, cancel smooth transition
+      if (
+        [
+          'KeyW',
+          'KeyS',
+          'KeyA',
+          'KeyD',
+          'Space',
+          'ShiftLeft',
+          'ShiftRight',
+          'ArrowUp',
+          'ArrowDown',
+          'ArrowLeft',
+          'ArrowRight',
+        ].includes(e.code)
+      ) {
+        transitionRef.current = null;
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      keysPressed.current.delete(e.code);
+      if (!e.ctrlKey) {
+        keysPressed.current.delete('Control');
+        keysPressed.current.delete('ControlLeft');
+        keysPressed.current.delete('ControlRight');
+      }
+      if (!e.shiftKey) {
+        keysPressed.current.delete('Shift');
+        keysPressed.current.delete('ShiftLeft');
+        keysPressed.current.delete('ShiftRight');
+      }
+    };
+
+    const handleBlur = () => {
+      keysPressed.current.clear();
+      isRightMouseDown.current = false;
+      if (
+        typeof document !== 'undefined' &&
+        document.pointerLockElement === canvas
+      ) {
+        document.exitPointerLock?.();
+      }
+    };
+
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+
+    const handleMouseDown = (e: MouseEvent) => {
+      if (e.button === 2) {
+        // Right click down: initiate free-look
+        transitionRef.current = null;
+        isRightMouseDown.current = true;
+        lastMousePos.current = { x: e.clientX, y: e.clientY };
+
+        try {
+          if (canvas.requestPointerLock) {
+            canvas.requestPointerLock();
+          }
+        } catch {
+          // Fallback via clientX/clientY delta handles rotation
+        }
+      }
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isRightMouseDown.current) return;
+
+      let deltaX = 0;
+      let deltaY = 0;
+
+      if (
+        typeof document !== 'undefined' &&
+        document.pointerLockElement === canvas
+      ) {
+        deltaX = e.movementX || 0;
+        deltaY = e.movementY || 0;
+      } else {
+        deltaX = e.clientX - lastMousePos.current.x;
+        deltaY = e.clientY - lastMousePos.current.y;
+        lastMousePos.current = { x: e.clientX, y: e.clientY };
+      }
+
+      const SENSITIVITY = 0.0022;
+      yawRef.current -= deltaX * SENSITIVITY;
+      pitchRef.current -= deltaY * SENSITIVITY;
+
+      // Clamp pitch between -89° and +89° in radians to prevent gimbal flip
+      const maxPitch = (89 * Math.PI) / 180;
+      pitchRef.current = Math.max(
+        -maxPitch,
+        Math.min(maxPitch, pitchRef.current)
+      );
+
+      camera.rotation.order = 'YXZ';
+      camera.rotation.y = yawRef.current;
+      camera.rotation.x = pitchRef.current;
+      camera.rotation.z = 0;
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 2) {
+        isRightMouseDown.current = false;
+        if (
+          typeof document !== 'undefined' &&
+          document.pointerLockElement === canvas
+        ) {
+          document.exitPointerLock?.();
+        }
+      }
+    };
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      transitionRef.current = null;
+      const forward = new THREE.Vector3();
+      camera.getWorldDirection(forward);
+      const step = -Math.sign(e.deltaY) * 1.5;
+      camera.position.addScaledVector(forward, step);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    canvas.addEventListener('contextmenu', handleContextMenu);
+    canvas.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+      canvas.removeEventListener('contextmenu', handleContextMenu);
+      canvas.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      canvas.removeEventListener('wheel', handleWheel);
+      if (
+        typeof document !== 'undefined' &&
+        document.pointerLockElement === canvas
+      ) {
+        document.exitPointerLock?.();
+      }
+    };
+  }, [camera, gl.domElement]);
+
+  // Main 60/120 FPS flight update loop
+  useFrame((_, delta) => {
+    if (isDraggingInScene) return;
+
+    // 1. Smooth Glide Transition
+    if (transitionRef.current) {
+      const {
+        startPos,
+        endPos,
+        startLookAt,
+        endLookAt,
+        startTime,
+        duration,
+      } = transitionRef.current;
+      const elapsed = performance.now() - startTime;
+      const t = Math.min(1, elapsed / duration);
+      // Ease-out cubic for smooth deceleration
+      const ease = 1 - Math.pow(1 - t, 3);
+
+      camera.position.lerpVectors(startPos, endPos, ease);
+      const currentLook = new THREE.Vector3().lerpVectors(
+        startLookAt,
+        endLookAt,
+        ease
+      );
+      camera.lookAt(currentLook);
+      camera.rotation.order = 'YXZ';
+      yawRef.current = camera.rotation.y;
+      pitchRef.current = camera.rotation.x;
+      camera.rotation.z = 0;
+
+      if (t >= 1) {
+        transitionRef.current = null;
+        camera.position.copy(endPos);
+        camera.lookAt(endLookAt);
+        camera.rotation.order = 'YXZ';
+        yawRef.current = camera.rotation.y;
+        pitchRef.current = camera.rotation.x;
+        camera.rotation.z = 0;
+      }
+    } else {
+      // 2. Flight Movement based on keys
+      const keys = keysPressed.current;
+      if (keys.size > 0) {
+        const isBoost =
+          keys.has('ControlLeft') ||
+          keys.has('ControlRight') ||
+          keys.has('Control') ||
+          keys.has('control');
+        const speed = (isBoost ? 30.0 : 14.0) * Math.min(delta, 0.1);
+
+        const yaw = yawRef.current;
+        const forwardXZ = new THREE.Vector3(
+          -Math.sin(yaw),
+          0,
+          -Math.cos(yaw)
+        ).normalize();
+        const rightXZ = new THREE.Vector3(
+          Math.cos(yaw),
+          0,
+          -Math.sin(yaw)
+        ).normalize();
+        const up = new THREE.Vector3(0, 1, 0);
+
+        const moveDir = new THREE.Vector3();
+
+        if (keys.has('KeyW') || keys.has('ArrowUp')) moveDir.add(forwardXZ);
+        if (keys.has('KeyS') || keys.has('ArrowDown')) moveDir.sub(forwardXZ);
+        if (keys.has('KeyD') || keys.has('ArrowRight')) moveDir.add(rightXZ);
+        if (keys.has('KeyA') || keys.has('ArrowLeft')) moveDir.sub(rightXZ);
+        if (keys.has('Space')) moveDir.add(up);
+        if (
+          keys.has('ShiftLeft') ||
+          keys.has('ShiftRight') ||
+          keys.has('Shift')
+        ) {
+          moveDir.sub(up);
+        }
+
+        if (moveDir.lengthSq() > 0) {
+          moveDir.normalize().multiplyScalar(speed);
+          camera.position.add(moveDir);
+        }
+      }
+    }
+
+    // 3. Keep live camera position & target (8 blocks ahead) synced for Cut-Editor & HUD
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    const target = camera.position.clone().add(forward.multiplyScalar(8));
+
+    if (
+      camera.position.distanceToSquared(lastSyncedPos.current) > 0.001 ||
+      target.distanceToSquared(lastSyncedTarget.current) > 0.001
+    ) {
+      lastSyncedPos.current.copy(camera.position);
+      lastSyncedTarget.current.copy(target);
+      setLiveCameraState(
+        { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+        { x: target.x, y: target.y, z: target.z }
+      );
+    }
+  });
+
+  return null;
+};
+
+/**
+ * Main 3D Voxel Module Renderer:
+ * Combines high-performance chunk-merged mesh rendering with Minecraft Spectator controls.
+ */
 export const VoxelModuleRenderer: React.FC = () => {
   const modules = useJLStore((s) => s.modules);
   const selectedModuleId = useJLStore((s) => s.selectedModuleId);
@@ -25,11 +537,15 @@ export const VoxelModuleRenderer: React.FC = () => {
   const hoveredBlock = useJLStore((s) => s.hoveredBlock);
   const draftStartBlock = useJLStore((s) => s.draftStartBlock);
   const draftMidPoints = useJLStore((s) => s.draftMidPoints);
-  const activeDraftMidPointIndex = useJLStore((s) => s.activeDraftMidPointIndex);
+  const activeDraftMidPointIndex = useJLStore(
+    (s) => s.activeDraftMidPointIndex
+  );
   const draftEndBlock = useJLStore((s) => s.draftEndBlock);
   const setHoveredBlock = useJLStore((s) => s.setHoveredBlock);
   const pickBlockInScene = useJLStore((s) => s.pickBlockInScene);
-  const setActiveDraftMidPointIndex = useJLStore((s) => s.setActiveDraftMidPointIndex);
+  const setActiveDraftMidPointIndex = useJLStore(
+    (s) => s.setActiveDraftMidPointIndex
+  );
   const updateDraftMidPoint = useJLStore((s) => s.updateDraftMidPoint);
   const loadModuleBlocks = useJLStore((s) => s.loadModuleBlocks);
 
@@ -105,23 +621,30 @@ export const VoxelModuleRenderer: React.FC = () => {
   }, [mcmeta, currentModule?.blocks]);
 
   // Fast Voxel Raycasting: determines the clicked/hovered voxel coordinate from intersection point & normal
-  const getVoxelCoordFromHit = useCallback((e: ThreeEvent<any>): Vector3D | null => {
-    if (!e.face) return null;
-    const hitPos = e.point.clone().sub(e.face.normal.clone().multiplyScalar(0.01));
-    const bx = Math.round(hitPos.x);
-    const by = Math.round(hitPos.y);
-    const bz = Math.round(hitPos.z);
-    return { x: bx, y: by, z: bz };
-  }, []);
+  const getVoxelCoordFromHit = useCallback(
+    (e: ThreeEvent<any>): Vector3D | null => {
+      if (!e.face) return null;
+      const hitPos = e.point
+        .clone()
+        .sub(e.face.normal.clone().multiplyScalar(0.01));
+      const bx = Math.round(hitPos.x);
+      const by = Math.round(hitPos.y);
+      const bz = Math.round(hitPos.z);
+      return { x: bx, y: by, z: bz };
+    },
+    []
+  );
 
   const handlePointerMove = useCallback(
     (e: ThreeEvent<PointerEvent>) => {
       if (!isSubmitMode) return;
+      // Do not recalculate hover if right mouse button is being held to look around
+      if (e.buttons === 2) return;
+
       e.stopPropagation();
       const coord = getVoxelCoordFromHit(e);
       if (!coord) return;
 
-      // Throttle: only update state if hovered coordinate actually changed
       if (
         !hoveredBlock ||
         hoveredBlock.x !== coord.x ||
@@ -139,7 +662,13 @@ export const VoxelModuleRenderer: React.FC = () => {
         }
       }
     },
-    [isSubmitMode, getVoxelCoordFromHit, hoveredBlock, blockMap, setHoveredBlock]
+    [
+      isSubmitMode,
+      getVoxelCoordFromHit,
+      hoveredBlock,
+      blockMap,
+      setHoveredBlock,
+    ]
   );
 
   const handlePointerOut = useCallback(
@@ -152,9 +681,11 @@ export const VoxelModuleRenderer: React.FC = () => {
     [isSubmitMode, setHoveredBlock]
   );
 
+  // Left-Click: Exclusively picks the block in Cut-Editor submit mode
   const handleClick = useCallback(
     (e: ThreeEvent<MouseEvent>) => {
       if (!isSubmitMode) return;
+      if (e.nativeEvent.button !== 0) return; // Only Left Click
       e.stopPropagation();
       const coord = getVoxelCoordFromHit(e);
       if (!coord) return;
@@ -171,7 +702,7 @@ export const VoxelModuleRenderer: React.FC = () => {
     (e: ThreeEvent<PointerEvent>) => {
       if (!isSubmitMode) return;
       if (e.button === 1) {
-        // Middle click: force add as midpoint waypoint
+        // Middle click: force add as waypoint
         e.stopPropagation();
         const coord = getVoxelCoordFromHit(e);
         if (!coord) return;
@@ -199,17 +730,27 @@ export const VoxelModuleRenderer: React.FC = () => {
     currentModule.blocks.length === 0
   ) {
     return (
-      <WorldHtml position={[0, 4, 10]} center>
-        <div className="flex items-center gap-2.5 rounded-xl border border-emerald-500/40 bg-zinc-950/90 px-4 py-2 font-mono text-xs text-emerald-400 shadow-2xl backdrop-blur-md">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent" />
-          <span>Lade 3D-Blöcke für {currentModule?.name || 'Modul'}...</span>
-        </div>
-      </WorldHtml>
+      <group>
+        <MinecraftSpectatorControls />
+        <SpectatorControlsHint />
+        <WorldHtml position={[0, 4, 10]} center>
+          <div className="flex items-center gap-2.5 rounded-xl border border-emerald-500/40 bg-zinc-950/90 px-4 py-2 font-mono text-xs text-emerald-400 shadow-2xl backdrop-blur-md">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent" />
+            <span>Lade 3D-Blöcke für {currentModule?.name || 'Modul'}...</span>
+          </div>
+        </WorldHtml>
+      </group>
     );
   }
 
   return (
     <group>
+      {/* Minecraft Spectator Free-Look & WASD Flight Camera Controller */}
+      <MinecraftSpectatorControls />
+
+      {/* Control Hint UI */}
+      <SpectatorControlsHint />
+
       {/* 1. OPAQUE & ALPHA-TESTED MESH (Solid blocks, leaves, ladders, fences, etc. in 1 single Draw Call) */}
       {mergedResult?.opaqueGeometry && atlasMaterial && (
         <mesh
@@ -290,7 +831,13 @@ export const VoxelModuleRenderer: React.FC = () => {
 
       {/* Submit Mode: Draft Start Marker */}
       {isSubmitMode && draftStartBlock && (
-        <group position={[draftStartBlock.x, draftStartBlock.y, draftStartBlock.z]}>
+        <group
+          position={[
+            draftStartBlock.x,
+            draftStartBlock.y,
+            draftStartBlock.z,
+          ]}
+        >
           <mesh>
             <boxGeometry args={[1.08, 1.08, 1.08]} />
             <meshBasicMaterial

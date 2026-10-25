@@ -1,138 +1,23 @@
 'use client';
 
-import React, { Suspense, useEffect, useMemo, useRef } from 'react';
+import React, { Suspense, useRef } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
-import { CameraControls, Grid, Stars } from '@react-three/drei';
+import { Grid, Stars } from '@react-three/drei';
 import { VoxelRenderer } from './VoxelRenderer';
 import { CutTrajectories } from './CutTrajectories';
 import { HtmlPortalContext } from './WorldHtml';
 import { useJLStore } from '@/store/useJLStore';
-
-const SceneCameraController: React.FC = () => {
-  const controlsRef = useRef<CameraControls | null>(null);
-
-  const modules = useJLStore((s) => s.modules);
-  const selectedModuleId = useJLStore((s) => s.selectedModuleId);
-  const selectedCutId = useJLStore((s) => s.selectedCutId);
-  const cameraResetCounter = useJLStore((s) => s.cameraResetCounter);
-  const cuts = useJLStore((s) => s.cuts);
-  const isDraggingInScene = useJLStore((s) => s.isDraggingInScene);
-  const setLiveCameraState = useJLStore((s) => s.setLiveCameraState);
-
-  const currentModule = useMemo(() => {
-    if (!selectedModuleId) return modules[0] ?? null;
-    const target = selectedModuleId.trim().toLowerCase();
-    const cleanTarget = target.replace(/^#+/, '');
-    return (
-      modules.find((m) => {
-        const mId = m.id.toLowerCase();
-        const mClean = mId.replace(/^#+/, '');
-        const mShort = (m.shortCode || '').toLowerCase().replace(/^#+/, '');
-        return (
-          mId === target ||
-          mClean === cleanTarget ||
-          mShort === cleanTarget ||
-          mId === `#${cleanTarget}`
-        );
-      }) ??
-      modules[0] ??
-      null
-    );
-  }, [modules, selectedModuleId]);
-
-  // Smoothly glide via setLookAt (smoothTime = 0.35) when a Cut is selected
-  useEffect(() => {
-    const controls = controlsRef.current;
-    if (!controls) return;
-
-    controls.smoothTime = 0.35;
-
-    if (selectedCutId) {
-      const cut = cuts.find((c) => c.id === selectedCutId);
-      if (cut && cut.cameraPosition && cut.cameraTarget) {
-        const { cameraPosition: pos, cameraTarget: target } = cut;
-        void controls.setLookAt(
-          pos.x,
-          pos.y,
-          pos.z,
-          target.x,
-          target.y,
-          target.z,
-          true
-        );
-      }
-    }
-  }, [selectedCutId, cuts]);
-
-  // Smoothly frame the full module overview on module change or camera reset
-  useEffect(() => {
-    const controls = controlsRef.current;
-    if (!controls) return;
-
-    controls.smoothTime = 0.35;
-
-    const state = useJLStore.getState();
-    if (state.selectedCutId) {
-      const activeCut = state.cuts.find((c) => c.id === state.selectedCutId);
-      if (activeCut && activeCut.moduleId === selectedModuleId && activeCut.cameraPosition && activeCut.cameraTarget) {
-        void controls.setLookAt(
-          activeCut.cameraPosition.x,
-          activeCut.cameraPosition.y,
-          activeCut.cameraPosition.z,
-          activeCut.cameraTarget.x,
-          activeCut.cameraTarget.y,
-          activeCut.cameraTarget.z,
-          true
-        );
-        return;
-      }
-    }
-
-    const dims = currentModule?.dimensions || { x: 12, y: 12, z: 24 };
-    const dimZ = Number(dims.z) || 24;
-    const dimY = Number(dims.y) || 12;
-    const midZ = dimZ * 0.46;
-    const camX = Math.max(18, dimZ * 0.45);
-    const camY = Math.max(13, dimY * 1.45);
-    const camZ = midZ - dimZ * 0.25;
-
-    void controls.setLookAt(camX, camY, camZ, 0, 4.2, midZ, true);
-  }, [selectedModuleId, cameraResetCounter, currentModule]);
-
-  const handleControlEnd = () => {
-    const controls = controlsRef.current;
-    if (!controls) return;
-    const pos = new THREE.Vector3();
-    const target = new THREE.Vector3();
-    controls.getPosition(pos);
-    controls.getTarget(target);
-    setLiveCameraState(
-      { x: pos.x, y: pos.y, z: pos.z },
-      { x: target.x, y: target.y, z: target.z }
-    );
-  };
-
-  return (
-    <CameraControls
-      ref={controlsRef}
-      makeDefault
-      enabled={!isDraggingInScene}
-      smoothTime={0.35}
-      minDistance={2.5}
-      maxDistance={65}
-      maxPolarAngle={Math.PI / 2 + 0.15}
-      onEnd={handleControlEnd}
-    />
-  );
-};
 
 export const ModuleScene: React.FC = () => {
   const showCutLines = useJLStore((s) => s.showCutLines);
   const htmlPortalRef = useRef<HTMLDivElement>(null!);
 
   return (
-    <div className="fixed inset-0 h-screen w-screen bg-[#1c202d] select-none">
+    <div
+      className="fixed inset-0 h-screen w-screen bg-[#1c202d] select-none"
+      onContextMenu={(e) => e.preventDefault()}
+    >
       {/* Dedicated Sibling Portal Container outside <Canvas> for @react-three/drei <Html> badges */}
       <div
         ref={htmlPortalRef}
@@ -144,6 +29,7 @@ export const ModuleScene: React.FC = () => {
         dpr={[1, 2]}
         camera={{ position: [21, 14.5, 9.5], fov: 46, near: 0.1, far: 250 }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
+        onContextMenu={(e) => e.preventDefault()}
       >
         {/* Lighter, atmospheric twilight sky & haze */}
         <color attach="background" args={['#1c202d']} />
@@ -197,7 +83,6 @@ export const ModuleScene: React.FC = () => {
 
         <HtmlPortalContext.Provider value={htmlPortalRef}>
           <Suspense fallback={null}>
-            <SceneCameraController />
             <VoxelRenderer />
             {showCutLines && <CutTrajectories />}
           </Suspense>
