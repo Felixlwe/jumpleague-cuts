@@ -632,7 +632,7 @@ export default function ModuleHubPage() {
                   {/* Background Thumbnail Image or 2D Isometric Silhouette Fallback */}
                   {mod.thumbnailUrl ? (
                     <div
-                      className="absolute inset-0 bg-cover bg-center opacity-35 transition-all duration-500 group-hover:scale-105 group-hover:opacity-60 pointer-events-none"
+                      className="absolute inset-0 bg-cover bg-center opacity-65 transition-all duration-500 group-hover:scale-105 group-hover:opacity-90 pointer-events-none"
                       style={{ backgroundImage: `url(${mod.thumbnailUrl})` }}
                     />
                   ) : (
@@ -643,7 +643,7 @@ export default function ModuleHubPage() {
                   )}
 
                   {/* Dark subtle gradient overlay ensuring text readability */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/75 to-transparent pointer-events-none" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/60 to-transparent pointer-events-none" />
 
                   {/* Top Accent Glow Bar */}
                   <div
