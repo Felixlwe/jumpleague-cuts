@@ -68,6 +68,12 @@ function getBlockSurfaceY(
       if (type.includes('chest')) {
         return coord.y + 0.42;
       }
+      if (type.includes('head') || type.includes('skull')) {
+        const isWall = type.includes('wall');
+        if (!isWall) {
+          return coord.y + 0.05;
+        }
+      }
     }
   }
   return coord.y + 0.55;

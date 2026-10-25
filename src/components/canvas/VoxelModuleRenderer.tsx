@@ -597,24 +597,231 @@ const MinecraftSpectatorControls: React.FC = () => {
   return null;
 };
 
-export interface BlockHighlightBounds {
+export interface BoxBound {
   size: [number, number, number];
   offset: [number, number, number];
 }
 
+export interface BlockHighlightBounds {
+  boxes: BoxBound[];
+  size: [number, number, number];
+  offset: [number, number, number];
+  primarySize: [number, number, number];
+  primaryOffset: [number, number, number];
+}
+
+export function singleBox(
+  size: [number, number, number],
+  offset: [number, number, number] = [0, 0, 0]
+): BlockHighlightBounds {
+  return {
+    boxes: [{ size, offset }],
+    primarySize: size,
+    primaryOffset: offset,
+    size,
+    offset,
+  };
+}
+
+export function compoundBoxes(
+  boxes: BoxBound[],
+  primarySize: [number, number, number] = [1.04, 1.04, 1.04],
+  primaryOffset: [number, number, number] = [0, 0, 0]
+): BlockHighlightBounds {
+  return {
+    boxes,
+    primarySize,
+    primaryOffset,
+    size: primarySize,
+    offset: primaryOffset,
+  };
+}
+
+/**
+ * Checks if a block is solid for supporting wall-mounted blocks (e.g. ladders, wall signs, wall skulls).
+ */
+function isSolidNeighbor(b?: VoxelBlock): boolean {
+  if (!b) return false;
+  const t = (b.type || '').toLowerCase().replace(/^minecraft:/, '');
+  if (!t) return false;
+  const name = t.includes('[') ? t.substring(0, t.indexOf('[')) : t;
+  if (
+    name.includes('air') ||
+    name.includes('water') ||
+    name.includes('lava') ||
+    name.includes('ladder') ||
+    name.includes('vine') ||
+    name.includes('torch') ||
+    name.includes('carpet') ||
+    name.includes('plate') ||
+    name.includes('button') ||
+    name.includes('lever') ||
+    name.includes('flower') ||
+    name.includes('sapling') ||
+    name.includes('sign') ||
+    name.includes('banner')
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Extracts clean block name and properties (facing, half, shape, slabType, open, hanging, etc.)
+ * from block type string, block properties/state, and neighbor connectivity.
+ */
+export function extractBlockMeta(
+  block?: VoxelBlock | null,
+  blockMap?: Map<string, VoxelBlock>
+): {
+  cleanType: string;
+  facing: string;
+  half: string;
+  shape: string;
+  slabType: string;
+  isOpen: boolean;
+  isHanging: boolean;
+  properties: Record<string, string>;
+} {
+  if (!block) {
+    return {
+      cleanType: '',
+      facing: '',
+      half: 'bottom',
+      shape: 'straight',
+      slabType: 'bottom',
+      isOpen: false,
+      isHanging: false,
+      properties: {},
+    };
+  }
+
+  const rawType = (block.type || '').toLowerCase().replace(/^minecraft:/, '');
+  const properties: Record<string, string> = {};
+
+  // 1. Parse bracket state syntax, e.g. "oak_stairs[facing=north,half=bottom]"
+  let cleanType = rawType;
+  const bracketIdx = rawType.indexOf('[');
+  if (bracketIdx !== -1 && rawType.endsWith(']')) {
+    cleanType = rawType.substring(0, bracketIdx);
+    const inside = rawType.substring(bracketIdx + 1, rawType.length - 1);
+    const pairs = inside.split(',');
+    for (const pair of pairs) {
+      const eqIdx = pair.indexOf('=');
+      if (eqIdx !== -1) {
+        const k = pair.substring(0, eqIdx).trim();
+        const v = pair.substring(eqIdx + 1).trim();
+        if (k) properties[k] = v;
+      }
+    }
+  }
+
+  // 2. Merge block.properties & block.state if present
+  if (block.properties && typeof block.properties === 'object') {
+    for (const [k, v] of Object.entries(block.properties)) {
+      if (v !== undefined && v !== null) properties[k.toLowerCase()] = String(v).toLowerCase();
+    }
+  }
+  if (block.state && typeof block.state === 'object') {
+    for (const [k, v] of Object.entries(block.state)) {
+      if (v !== undefined && v !== null) properties[k.toLowerCase()] = String(v).toLowerCase();
+    }
+  }
+
+  // 3. Extract facing with auto-detection for wall-mounted blocks
+  let facing =
+    block.facing ||
+    properties.facing ||
+    '';
+
+  const { x, y, z } = block.position || { x: 0, y: 0, z: 0 };
+
+  const isWallMountable =
+    cleanType.includes('ladder') ||
+    cleanType.includes('wall_sign') ||
+    cleanType.includes('wall_head') ||
+    cleanType.includes('wall_skull') ||
+    cleanType.includes('wall_torch') ||
+    cleanType.includes('wall_banner');
+
+  if (!facing && isWallMountable && blockMap) {
+    // In Minecraft:
+    // ladder on SOUTH wall faces NORTH (+Z -> faces north)
+    // ladder on NORTH wall faces SOUTH (-Z -> faces south)
+    // ladder on EAST wall faces WEST (+X -> faces west)
+    // ladder on WEST wall faces EAST (-X -> faces east)
+    if (isSolidNeighbor(blockMap.get(`${x},${y},${z + 1}`))) {
+      facing = 'north';
+    } else if (isSolidNeighbor(blockMap.get(`${x},${y},${z - 1}`))) {
+      facing = 'south';
+    } else if (isSolidNeighbor(blockMap.get(`${x + 1},${y},${z}`))) {
+      facing = 'west';
+    } else if (isSolidNeighbor(blockMap.get(`${x - 1},${y},${z}`))) {
+      facing = 'east';
+    }
+  }
+
+  // Default facing if still empty
+  if (!facing) {
+    facing = cleanType.includes('ladder') ? 'north' : '';
+  }
+
+  const half =
+    block.half ||
+    properties.half ||
+    'bottom';
+
+  const shape =
+    properties.shape ||
+    'straight';
+
+  const slabType =
+    block.slabType ||
+    properties.type ||
+    'bottom';
+
+  const isOpen =
+    block.open === true ||
+    properties.open === 'true';
+
+  const isHanging =
+    properties.hanging === 'true';
+
+  return {
+    cleanType,
+    facing,
+    half,
+    shape,
+    slabType,
+    isOpen,
+    isHanging,
+    properties,
+  };
+}
+
 /**
  * Calculates adaptive 3D outline box dimensions & center offset based on Minecraft block geometry.
- * Adapts to fences, walls, slabs, trapdoors, ladders, carpets, iron bars, glass panes, rods, etc.
+ * Adapts to fences, walls, slabs, trapdoors, ladders, stairs, heads/skulls, carpets, rods, etc.
  */
 export function getBlockHighlightBounds(
   block?: VoxelBlock | null,
   blockMap?: Map<string, VoxelBlock>
 ): BlockHighlightBounds {
   if (!block) {
-    return { size: [1.04, 1.04, 1.04], offset: [0, 0, 0] };
+    return singleBox([1.04, 1.04, 1.04], [0, 0, 0]);
   }
 
-  const rawType = (block.type || '').toLowerCase().replace(/^minecraft:/, '');
+  const {
+    cleanType,
+    facing,
+    half,
+    shape,
+    slabType,
+    isOpen,
+    isHanging,
+    properties,
+  } = extractBlockMeta(block, blockMap);
+
   const { x, y, z } = block.position;
 
   // Helper to check neighbor connection for fences/walls/bars/panes
@@ -632,22 +839,18 @@ export function getBlockHighlightBounds(
   };
 
   // 1. Fences (e.g. oak_fence, nether_brick_fence, fence_gate)
-  if (rawType.includes('fence')) {
+  if (cleanType.includes('fence')) {
     const hasNorth =
-      block.properties?.north === 'true' ||
-      block.state?.north === 'true' ||
+      properties.north === 'true' ||
       canConnect(blockMap?.get(`${x},${y},${z - 1}`));
     const hasSouth =
-      block.properties?.south === 'true' ||
-      block.state?.south === 'true' ||
+      properties.south === 'true' ||
       canConnect(blockMap?.get(`${x},${y},${z + 1}`));
     const hasWest =
-      block.properties?.west === 'true' ||
-      block.state?.west === 'true' ||
+      properties.west === 'true' ||
       canConnect(blockMap?.get(`${x - 1},${y},${z}`));
     const hasEast =
-      block.properties?.east === 'true' ||
-      block.state?.east === 'true' ||
+      properties.east === 'true' ||
       canConnect(blockMap?.get(`${x + 1},${y},${z}`));
 
     const minX = hasWest ? -0.52 : -0.19;
@@ -655,14 +858,21 @@ export function getBlockHighlightBounds(
     const minZ = hasNorth ? -0.52 : -0.19;
     const maxZ = hasSouth ? 0.52 : 0.19;
 
-    return {
-      size: [maxX - minX, 1.04, maxZ - minZ],
-      offset: [(minX + maxX) / 2, 0, (minZ + maxZ) / 2],
-    };
+    return singleBox(
+      [maxX - minX, 1.04, maxZ - minZ],
+      [(minX + maxX) / 2, 0, (minZ + maxZ) / 2]
+    );
   }
 
   // 2. Walls (e.g. cobblestone_wall, diorite_wall)
-  if (rawType.includes('wall') && !rawType.includes('sign')) {
+  if (
+    cleanType.includes('wall') &&
+    !cleanType.includes('sign') &&
+    !cleanType.includes('head') &&
+    !cleanType.includes('skull') &&
+    !cleanType.includes('torch') &&
+    !cleanType.includes('banner')
+  ) {
     const hasNorth = canConnect(blockMap?.get(`${x},${y},${z - 1}`));
     const hasSouth = canConnect(blockMap?.get(`${x},${y},${z + 1}`));
     const hasWest = canConnect(blockMap?.get(`${x - 1},${y},${z}`));
@@ -673,14 +883,14 @@ export function getBlockHighlightBounds(
     const minZ = hasNorth ? -0.52 : -0.24;
     const maxZ = hasSouth ? 0.52 : 0.24;
 
-    return {
-      size: [maxX - minX, 1.04, maxZ - minZ],
-      offset: [(minX + maxX) / 2, 0, (minZ + maxZ) / 2],
-    };
+    return singleBox(
+      [maxX - minX, 1.04, maxZ - minZ],
+      [(minX + maxX) / 2, 0, (minZ + maxZ) / 2]
+    );
   }
 
   // 3. Iron Bars & Glass Panes
-  if (rawType.includes('bars') || rawType.includes('pane')) {
+  if (cleanType.includes('bars') || cleanType.includes('pane')) {
     const hasNorth = canConnect(blockMap?.get(`${x},${y},${z - 1}`));
     const hasSouth = canConnect(blockMap?.get(`${x},${y},${z + 1}`));
     const hasWest = canConnect(blockMap?.get(`${x - 1},${y},${z}`));
@@ -691,147 +901,262 @@ export function getBlockHighlightBounds(
     const minZ = hasNorth ? -0.52 : -0.13;
     const maxZ = hasSouth ? 0.52 : 0.13;
 
-    return {
-      size: [maxX - minX, 1.04, maxZ - minZ],
-      offset: [(minX + maxX) / 2, 0, (minZ + maxZ) / 2],
-    };
+    return singleBox(
+      [maxX - minX, 1.04, maxZ - minZ],
+      [(minX + maxX) / 2, 0, (minZ + maxZ) / 2]
+    );
   }
 
-  // 4. Slabs (bottom vs top vs double)
-  if (rawType.includes('slab')) {
-    const slabType =
-      block.slabType ||
-      block.properties?.type ||
-      block.state?.type ||
-      'bottom';
+  // 4. Stairs (Stepped Compound 3D Geometry!)
+  if (cleanType.includes('stairs') || cleanType.includes('stair')) {
+    const isTop = half === 'top';
+    const baseOffsetY = isTop ? 0.25 : -0.25;
+    const stepOffsetY = isTop ? -0.25 : 0.25;
 
+    // Base Box: standard half slab
+    const boxes: BoxBound[] = [
+      {
+        size: [1.04, 0.52, 1.04],
+        offset: [0, baseOffsetY, 0],
+      },
+    ];
+
+    if (shape === 'outer_left' || shape === 'outer_right') {
+      let cornerOffset: [number, number, number] = [0, stepOffsetY, 0];
+      if (facing === 'north') {
+        cornerOffset = shape === 'outer_left' ? [-0.25, stepOffsetY, -0.25] : [0.25, stepOffsetY, -0.25];
+      } else if (facing === 'south') {
+        cornerOffset = shape === 'outer_left' ? [0.25, stepOffsetY, 0.25] : [-0.25, stepOffsetY, 0.25];
+      } else if (facing === 'west') {
+        cornerOffset = shape === 'outer_left' ? [-0.25, stepOffsetY, 0.25] : [-0.25, stepOffsetY, -0.25];
+      } else {
+        // east
+        cornerOffset = shape === 'outer_left' ? [0.25, stepOffsetY, -0.25] : [0.25, stepOffsetY, 0.25];
+      }
+      boxes.push({
+        size: [0.52, 0.52, 0.52],
+        offset: cornerOffset,
+      });
+    } else if (shape === 'inner_left' || shape === 'inner_right') {
+      if (facing === 'north') {
+        boxes.push({ size: [1.04, 0.52, 0.52], offset: [0, stepOffsetY, -0.25] });
+        boxes.push({
+          size: [0.52, 0.52, 0.52],
+          offset: [shape === 'inner_left' ? -0.25 : 0.25, stepOffsetY, 0.25],
+        });
+      } else if (facing === 'south') {
+        boxes.push({ size: [1.04, 0.52, 0.52], offset: [0, stepOffsetY, 0.25] });
+        boxes.push({
+          size: [0.52, 0.52, 0.52],
+          offset: [shape === 'inner_left' ? 0.25 : -0.25, stepOffsetY, -0.25],
+        });
+      } else if (facing === 'west') {
+        boxes.push({ size: [0.52, 0.52, 1.04], offset: [-0.25, stepOffsetY, 0] });
+        boxes.push({
+          size: [0.52, 0.52, 0.52],
+          offset: [0.25, stepOffsetY, shape === 'inner_left' ? 0.25 : -0.25],
+        });
+      } else {
+        // east
+        boxes.push({ size: [0.52, 0.52, 1.04], offset: [0.25, stepOffsetY, 0] });
+        boxes.push({
+          size: [0.52, 0.52, 0.52],
+          offset: [-0.25, stepOffsetY, shape === 'inner_left' ? -0.25 : 0.25],
+        });
+      }
+    } else {
+      // Straight stair (standard)
+      if (facing === 'north') {
+        boxes.push({ size: [1.04, 0.52, 0.52], offset: [0, stepOffsetY, -0.25] });
+      } else if (facing === 'south') {
+        boxes.push({ size: [1.04, 0.52, 0.52], offset: [0, stepOffsetY, 0.25] });
+      } else if (facing === 'west') {
+        boxes.push({ size: [0.52, 0.52, 1.04], offset: [-0.25, stepOffsetY, 0] });
+      } else {
+        // east
+        boxes.push({ size: [0.52, 0.52, 1.04], offset: [0.25, stepOffsetY, 0] });
+      }
+    }
+
+    return compoundBoxes(boxes, [1.04, 1.04, 1.04], [0, 0, 0]);
+  }
+
+  // 5. Slabs (bottom vs top vs double)
+  if (cleanType.includes('slab')) {
     if (slabType === 'top') {
-      return { size: [1.04, 0.52, 1.04], offset: [0, 0.25, 0] };
+      return singleBox([1.04, 0.52, 1.04], [0, 0.25, 0]);
     }
     if (slabType === 'double') {
-      return { size: [1.04, 1.04, 1.04], offset: [0, 0, 0] };
+      return singleBox([1.04, 1.04, 1.04], [0, 0, 0]);
     }
-    return { size: [1.04, 0.52, 1.04], offset: [0, -0.25, 0] };
+    return singleBox([1.04, 0.52, 1.04], [0, -0.25, 0]);
   }
 
-  // 5. Carpets & Snow layers
-  if (rawType.includes('carpet') || rawType === 'snow' || rawType.includes('snow_layer')) {
-    return { size: [1.04, 0.12, 1.04], offset: [0, -0.46, 0] };
+  // 6. Carpets & Snow layers
+  if (cleanType.includes('carpet') || cleanType === 'snow' || cleanType.includes('snow_layer')) {
+    return singleBox([1.04, 0.12, 1.04], [0, -0.46, 0]);
   }
 
-  // 6. Trapdoors
-  if (rawType.includes('trapdoor')) {
-    const isOpen =
-      block.open ||
-      block.properties?.open === 'true' ||
-      block.state?.open === 'true';
-    const facing =
-      block.facing ||
-      block.properties?.facing ||
-      block.state?.facing ||
-      'north';
-    const half =
-      block.half ||
-      block.properties?.half ||
-      block.state?.half ||
-      'bottom';
-
+  // 7. Trapdoors (Open on attached wall vs Closed on top/bottom)
+  if (cleanType.includes('trapdoor')) {
     if (isOpen) {
-      if (facing === 'north') return { size: [1.04, 1.04, 0.22], offset: [0, 0, -0.41] };
-      if (facing === 'south') return { size: [1.04, 1.04, 0.22], offset: [0, 0, 0.41] };
-      if (facing === 'west') return { size: [0.22, 1.04, 1.04], offset: [-0.41, 0, 0] };
-      return { size: [0.22, 1.04, 1.04], offset: [0.41, 0, 0] };
+      if (facing === 'north') return singleBox([1.04, 1.04, 0.20], [0, 0, 0.41]);
+      if (facing === 'south') return singleBox([1.04, 1.04, 0.20], [0, 0, -0.41]);
+      if (facing === 'west') return singleBox([0.20, 1.04, 1.04], [0.41, 0, 0]);
+      return singleBox([0.20, 1.04, 1.04], [-0.41, 0, 0]);
     }
 
     if (half === 'top') {
-      return { size: [1.04, 0.22, 1.04], offset: [0, 0.41, 0] };
+      return singleBox([1.04, 0.20, 1.04], [0, 0.41, 0]);
     }
-    return { size: [1.04, 0.22, 1.04], offset: [0, -0.41, 0] };
+    return singleBox([1.04, 0.20, 1.04], [0, -0.41, 0]);
   }
 
-  // 7. Ladders
-  if (rawType.includes('ladder')) {
-    const facing =
-      block.facing ||
-      block.properties?.facing ||
-      block.state?.facing ||
-      'north';
-    if (facing === 'north') return { size: [0.96, 1.04, 0.18], offset: [0, 0, -0.42] };
-    if (facing === 'south') return { size: [0.96, 1.04, 0.18], offset: [0, 0, 0.42] };
-    if (facing === 'west') return { size: [0.18, 1.04, 0.96], offset: [-0.42, 0, 0] };
-    if (facing === 'east') return { size: [0.18, 1.04, 0.96], offset: [0.42, 0, 0] };
-    return { size: [0.96, 1.04, 0.22], offset: [0, 0, 0] };
+  // 8. Ladders (facing=north attaches to South wall, etc.)
+  if (cleanType.includes('ladder')) {
+    if (facing === 'north') return singleBox([0.96, 1.04, 0.16], [0, 0, 0.42]);
+    if (facing === 'south') return singleBox([0.96, 1.04, 0.16], [0, 0, -0.42]);
+    if (facing === 'west') return singleBox([0.16, 1.04, 0.96], [0.42, 0, 0]);
+    if (facing === 'east') return singleBox([0.16, 1.04, 0.96], [-0.42, 0, 0]);
+    return singleBox([0.96, 1.04, 0.20], [0, 0, 0]);
   }
 
-  // 8. Rods (End Rod, Lightning Rod)
-  if (rawType.includes('rod')) {
-    return { size: [0.28, 1.04, 0.28], offset: [0, 0, 0] };
+  // 9. Heads / Skulls (Wall Head on wall face vs Floor Head on ground)
+  if (cleanType.includes('head') || cleanType.includes('skull')) {
+    const isWallHead =
+      cleanType.includes('wall') ||
+      (facing && ['north', 'south', 'east', 'west'].includes(facing) && !properties.rotation);
+
+    if (isWallHead) {
+      if (facing === 'north') return singleBox([0.54, 0.54, 0.54], [0, 0.02, 0.23]);
+      if (facing === 'south') return singleBox([0.54, 0.54, 0.54], [0, 0.02, -0.23]);
+      if (facing === 'west') return singleBox([0.54, 0.54, 0.54], [0.23, 0.02, 0]);
+      if (facing === 'east') return singleBox([0.54, 0.54, 0.54], [-0.23, 0.02, 0]);
+      return singleBox([0.54, 0.54, 0.54], [0, 0.02, 0]);
+    }
+
+    // Floor head / skull (rests on ground at y = -0.23)
+    return singleBox([0.54, 0.54, 0.54], [0, -0.23, 0]);
   }
 
-  // 9. Chains
-  if (rawType.includes('chain')) {
-    return { size: [0.26, 1.04, 0.26], offset: [0, 0, 0] };
+  // 10. Rods (End Rod, Lightning Rod)
+  if (cleanType.includes('rod')) {
+    if (facing === 'north' || facing === 'south') {
+      return singleBox([0.28, 0.28, 1.04], [0, 0, 0]);
+    }
+    if (facing === 'east' || facing === 'west') {
+      return singleBox([1.04, 0.28, 0.28], [0, 0, 0]);
+    }
+    return singleBox([0.28, 1.04, 0.28], [0, 0, 0]);
   }
 
-  // 10. Lanterns
-  if (rawType.includes('lantern')) {
-    const hanging =
-      block.properties?.hanging === 'true' ||
-      block.state?.hanging === 'true';
-    return {
-      size: [0.48, 0.68, 0.48],
-      offset: [0, hanging ? 0.16 : -0.16, 0],
-    };
+  // 11. Chains
+  if (cleanType.includes('chain')) {
+    return singleBox([0.26, 1.04, 0.26], [0, 0, 0]);
   }
 
-  // 11. Chests
-  if (rawType.includes('chest')) {
-    return { size: [0.92, 0.92, 0.92], offset: [0, -0.05, 0] };
+  // 12. Lanterns
+  if (cleanType.includes('lantern')) {
+    return singleBox(
+      [0.48, 0.68, 0.48],
+      [0, isHanging ? 0.16 : -0.16, 0]
+    );
   }
 
-  // 12. Daylight Detectors
-  if (rawType.includes('daylight_detector')) {
-    return { size: [1.04, 0.42, 1.04], offset: [0, -0.30, 0] };
+  // 13. Chests
+  if (cleanType.includes('chest')) {
+    return singleBox([0.92, 0.92, 0.92], [0, -0.05, 0]);
   }
 
-  // 13. Beds
-  if (rawType.includes('bed')) {
-    return { size: [1.04, 0.60, 1.04], offset: [0, -0.22, 0] };
+  // 14. Daylight Detectors
+  if (cleanType.includes('daylight_detector')) {
+    return singleBox([1.04, 0.42, 1.04], [0, -0.30, 0]);
   }
 
-  // 14. Anvils
-  if (rawType.includes('anvil')) {
-    return { size: [0.80, 1.02, 0.88], offset: [0, 0, 0] };
+  // 15. Beds
+  if (cleanType.includes('bed')) {
+    return singleBox([1.04, 0.60, 1.04], [0, -0.22, 0]);
   }
 
-  // 15. Cactus
-  if (rawType.includes('cactus')) {
-    return { size: [0.92, 1.04, 0.92], offset: [0, 0, 0] };
+  // 16. Anvils
+  if (cleanType.includes('anvil')) {
+    return singleBox([0.80, 1.02, 0.88], [0, 0, 0]);
   }
 
-  // 16. Flower Pots
-  if (rawType.includes('pot')) {
-    return { size: [0.48, 0.48, 0.48], offset: [0, -0.28, 0] };
+  // 17. Cactus
+  if (cleanType.includes('cactus')) {
+    return singleBox([0.92, 1.04, 0.92], [0, 0, 0]);
   }
 
-  // 17. Pressure Plates
-  if (rawType.includes('pressure_plate')) {
-    return { size: [0.86, 0.10, 0.86], offset: [0, -0.46, 0] };
+  // 18. Flower Pots
+  if (cleanType.includes('pot')) {
+    return singleBox([0.48, 0.48, 0.48], [0, -0.28, 0]);
   }
 
-  // 18. Heads / Skulls
-  if (rawType.includes('head') || rawType.includes('skull')) {
-    return { size: [0.58, 0.58, 0.58], offset: [0, -0.22, 0] };
+  // 19. Pressure Plates
+  if (cleanType.includes('pressure_plate')) {
+    return singleBox([0.86, 0.10, 0.86], [0, -0.46, 0]);
   }
 
-  // 19. Torches / Candles
-  if (rawType.includes('torch') || rawType.includes('candle')) {
-    return { size: [0.26, 0.70, 0.26], offset: [0, -0.15, 0] };
+  // 20. Torches / Candles (Wall vs Floor)
+  if (cleanType.includes('torch') || cleanType.includes('candle')) {
+    if (cleanType.includes('wall') || (facing && ['north', 'south', 'east', 'west'].includes(facing))) {
+      if (facing === 'north') return singleBox([0.26, 0.65, 0.26], [0, 0.12, 0.35]);
+      if (facing === 'south') return singleBox([0.26, 0.65, 0.26], [0, 0.12, -0.35]);
+      if (facing === 'west') return singleBox([0.26, 0.65, 0.26], [0.35, 0.12, 0]);
+      if (facing === 'east') return singleBox([0.26, 0.65, 0.26], [-0.35, 0.12, 0]);
+    }
+    return singleBox([0.26, 0.70, 0.26], [0, -0.15, 0]);
   }
 
-  // 20. Default standard full cube
-  return { size: [1.04, 1.04, 1.04], offset: [0, 0, 0] };
+  // 21. Default standard full cube
+  return singleBox([1.04, 1.04, 1.04], [0, 0, 0]);
 }
+
+/**
+ * Renders adaptive 3D highlight wireframes for single or compound block bounds.
+ */
+export const BlockHighlightMesh: React.FC<{
+  bounds: BlockHighlightBounds;
+  color?: string;
+  edgeColor?: string;
+  opacity?: number;
+  edgeScale?: number;
+  threshold?: number;
+  extraMargin?: number;
+}> = ({
+  bounds,
+  color = '#06b6d4',
+  edgeColor = '#22d3ee',
+  opacity = 0.18,
+  edgeScale = 1.02,
+  threshold = 1,
+  extraMargin = 0,
+}) => {
+  return (
+    <>
+      {bounds.boxes.map((b, i) => {
+        const boxSize: [number, number, number] = [
+          b.size[0] + extraMargin,
+          b.size[1] + extraMargin,
+          b.size[2] + extraMargin,
+        ];
+        return (
+          <mesh key={i} position={b.offset}>
+            <boxGeometry args={boxSize} />
+            <meshBasicMaterial
+              color={color}
+              transparent
+              opacity={opacity}
+              depthWrite={false}
+            />
+            <Edges scale={edgeScale} threshold={threshold} color={edgeColor} />
+          </mesh>
+        );
+      })}
+    </>
+  );
+};
 
 /**
  * Main 3D Voxel Module Renderer:
@@ -1184,22 +1509,25 @@ export const VoxelModuleRenderer: React.FC = () => {
             return (
               <group
                 position={[
-                  selectedCut.startBlock.x + bounds.offset[0],
-                  selectedCut.startBlock.y + bounds.offset[1],
-                  selectedCut.startBlock.z + bounds.offset[2],
+                  selectedCut.startBlock.x,
+                  selectedCut.startBlock.y,
+                  selectedCut.startBlock.z,
                 ]}
               >
-                <mesh>
-                  <boxGeometry args={bounds.size} />
-                  <meshBasicMaterial
-                    color="#10b981"
-                    transparent
-                    opacity={0.16}
-                    depthWrite={false}
-                  />
-                  <Edges scale={1.02} threshold={1} color="#22c55e" />
-                </mesh>
-                <WorldHtml position={[0, bounds.size[1] / 2 + 0.35, 0]} center>
+                <BlockHighlightMesh
+                  bounds={bounds}
+                  color="#10b981"
+                  edgeColor="#22c55e"
+                  opacity={0.16}
+                />
+                <WorldHtml
+                  position={[
+                    bounds.primaryOffset[0],
+                    bounds.primaryOffset[1] + bounds.primarySize[1] / 2 + 0.35,
+                    bounds.primaryOffset[2],
+                  ]}
+                  center
+                >
                   <div className="pointer-events-none whitespace-nowrap rounded-full bg-emerald-500/90 px-2 py-0.5 text-[9px] font-extrabold text-zinc-950 shadow-md">
                     START
                   </div>
@@ -1214,27 +1542,26 @@ export const VoxelModuleRenderer: React.FC = () => {
               const b = blockMap.get(`${Math.round(mid.x)},${Math.round(mid.y)},${Math.round(mid.z)}`);
               const bounds = b
                 ? getBlockHighlightBounds(b, blockMap)
-                : { size: [0.6, 0.6, 0.6] as [number, number, number], offset: [0, 0, 0] as [number, number, number] };
+                : singleBox([0.6, 0.6, 0.6], [0, 0, 0]);
               return (
                 <group
                   key={`sel-mid-${idx}`}
-                  position={[
-                    mid.x + bounds.offset[0],
-                    mid.y + bounds.offset[1],
-                    mid.z + bounds.offset[2],
-                  ]}
+                  position={[mid.x, mid.y, mid.z]}
                 >
-                  <mesh>
-                    <boxGeometry args={bounds.size} />
-                    <meshBasicMaterial
-                      color="#f97316"
-                      transparent
-                      opacity={0.16}
-                      depthWrite={false}
-                    />
-                    <Edges scale={1.02} threshold={1} color="#f97316" />
-                  </mesh>
-                  <WorldHtml position={[0, bounds.size[1] / 2 + 0.35, 0]} center>
+                  <BlockHighlightMesh
+                    bounds={bounds}
+                    color="#f97316"
+                    edgeColor="#f97316"
+                    opacity={0.16}
+                  />
+                  <WorldHtml
+                    position={[
+                      bounds.primaryOffset[0],
+                      bounds.primaryOffset[1] + bounds.primarySize[1] / 2 + 0.35,
+                      bounds.primaryOffset[2],
+                    ]}
+                    center
+                  >
                     <div className="pointer-events-none whitespace-nowrap rounded-full bg-orange-500/90 px-2 py-0.5 text-[9px] font-extrabold text-white shadow-md">
                       MID {selectedCut.midPoints!.length > 1 ? idx + 1 : ''}
                     </div>
@@ -1250,22 +1577,25 @@ export const VoxelModuleRenderer: React.FC = () => {
             return (
               <group
                 position={[
-                  selectedCut.endBlock.x + bounds.offset[0],
-                  selectedCut.endBlock.y + bounds.offset[1],
-                  selectedCut.endBlock.z + bounds.offset[2],
+                  selectedCut.endBlock.x,
+                  selectedCut.endBlock.y,
+                  selectedCut.endBlock.z,
                 ]}
               >
-                <mesh>
-                  <boxGeometry args={bounds.size} />
-                  <meshBasicMaterial
-                    color="#06b6d4"
-                    transparent
-                    opacity={0.16}
-                    depthWrite={false}
-                  />
-                  <Edges scale={1.02} threshold={1} color="#22d3ee" />
-                </mesh>
-                <WorldHtml position={[0, bounds.size[1] / 2 + 0.35, 0]} center>
+                <BlockHighlightMesh
+                  bounds={bounds}
+                  color="#06b6d4"
+                  edgeColor="#22d3ee"
+                  opacity={0.16}
+                />
+                <WorldHtml
+                  position={[
+                    bounds.primaryOffset[0],
+                    bounds.primaryOffset[1] + bounds.primarySize[1] / 2 + 0.35,
+                    bounds.primaryOffset[2],
+                  ]}
+                  center
+                >
                   <div className="pointer-events-none whitespace-nowrap rounded-full bg-cyan-500/90 px-2 py-0.5 text-[9px] font-extrabold text-zinc-950 shadow-md">
                     ZIEL
                   </div>
@@ -1283,22 +1613,25 @@ export const VoxelModuleRenderer: React.FC = () => {
         return (
           <group
             position={[
-              hoveredBlock.x + bounds.offset[0],
-              hoveredBlock.y + bounds.offset[1],
-              hoveredBlock.z + bounds.offset[2],
+              hoveredBlock.x,
+              hoveredBlock.y,
+              hoveredBlock.z,
             ]}
           >
-            <mesh>
-              <boxGeometry args={bounds.size} />
-              <meshBasicMaterial
-                color="#06b6d4"
-                transparent
-                opacity={0.18}
-                depthWrite={false}
-              />
-              <Edges scale={1.02} threshold={1} color="#22d3ee" />
-            </mesh>
-            <WorldHtml position={[0, bounds.size[1] / 2 + 0.45, 0]} center>
+            <BlockHighlightMesh
+              bounds={bounds}
+              color="#06b6d4"
+              edgeColor="#22d3ee"
+              opacity={0.18}
+            />
+            <WorldHtml
+              position={[
+                bounds.primaryOffset[0],
+                bounds.primaryOffset[1] + bounds.primarySize[1] / 2 + 0.45,
+                bounds.primaryOffset[2],
+              ]}
+              center
+            >
               <div className="pointer-events-none whitespace-nowrap rounded-md border border-cyan-400/50 bg-zinc-950/90 px-2 py-0.5 font-mono text-[10px] text-cyan-300 shadow-lg">
                 {hoveredBlockLabel} ({hoveredBlock.x}, {hoveredBlock.y},{' '}
                 {hoveredBlock.z})
@@ -1312,30 +1645,29 @@ export const VoxelModuleRenderer: React.FC = () => {
       {isSubmitMode && draftStartBlock && (() => {
         const b = blockMap.get(`${draftStartBlock.x},${draftStartBlock.y},${draftStartBlock.z}`);
         const bounds = getBlockHighlightBounds(b, blockMap);
-        const markerSize: [number, number, number] = [
-          bounds.size[0] + 0.04,
-          bounds.size[1] + 0.04,
-          bounds.size[2] + 0.04,
-        ];
         return (
           <group
             position={[
-              draftStartBlock.x + bounds.offset[0],
-              draftStartBlock.y + bounds.offset[1],
-              draftStartBlock.z + bounds.offset[2],
+              draftStartBlock.x,
+              draftStartBlock.y,
+              draftStartBlock.z,
             ]}
           >
-            <mesh>
-              <boxGeometry args={markerSize} />
-              <meshBasicMaterial
-                color="#10b981"
-                transparent
-                opacity={0.24}
-                depthWrite={false}
-              />
-              <Edges scale={1.02} threshold={1} color="#34d399" />
-            </mesh>
-            <WorldHtml position={[0, markerSize[1] / 2 + 0.55, 0]} center>
+            <BlockHighlightMesh
+              bounds={bounds}
+              color="#10b981"
+              edgeColor="#34d399"
+              opacity={0.24}
+              extraMargin={0.04}
+            />
+            <WorldHtml
+              position={[
+                bounds.primaryOffset[0],
+                bounds.primaryOffset[1] + bounds.primarySize[1] / 2 + 0.55,
+                bounds.primaryOffset[2],
+              ]}
+              center
+            >
               <div className="pointer-events-none whitespace-nowrap rounded-full bg-emerald-500/90 px-2 py-0.5 text-[10px] font-bold tracking-wider text-zinc-950 shadow-lg">
                 START ({draftStartBlock.x},{draftStartBlock.y},{draftStartBlock.z})
               </div>
@@ -1348,30 +1680,29 @@ export const VoxelModuleRenderer: React.FC = () => {
       {isSubmitMode && draftEndBlock && (() => {
         const b = blockMap.get(`${draftEndBlock.x},${draftEndBlock.y},${draftEndBlock.z}`);
         const bounds = getBlockHighlightBounds(b, blockMap);
-        const markerSize: [number, number, number] = [
-          bounds.size[0] + 0.04,
-          bounds.size[1] + 0.04,
-          bounds.size[2] + 0.04,
-        ];
         return (
           <group
             position={[
-              draftEndBlock.x + bounds.offset[0],
-              draftEndBlock.y + bounds.offset[1],
-              draftEndBlock.z + bounds.offset[2],
+              draftEndBlock.x,
+              draftEndBlock.y,
+              draftEndBlock.z,
             ]}
           >
-            <mesh>
-              <boxGeometry args={markerSize} />
-              <meshBasicMaterial
-                color="#a855f7"
-                transparent
-                opacity={0.24}
-                depthWrite={false}
-              />
-              <Edges scale={1.02} threshold={1} color="#c084fc" />
-            </mesh>
-            <WorldHtml position={[0, markerSize[1] / 2 + 0.55, 0]} center>
+            <BlockHighlightMesh
+              bounds={bounds}
+              color="#a855f7"
+              edgeColor="#c084fc"
+              opacity={0.24}
+              extraMargin={0.04}
+            />
+            <WorldHtml
+              position={[
+                bounds.primaryOffset[0],
+                bounds.primaryOffset[1] + bounds.primarySize[1] / 2 + 0.55,
+                bounds.primaryOffset[2],
+              ]}
+              center
+            >
               <div className="pointer-events-none whitespace-nowrap rounded-full bg-purple-500/90 px-2 py-0.5 text-[10px] font-bold tracking-wider text-white shadow-lg">
                 ZIEL ({draftEndBlock.x},{draftEndBlock.y},{draftEndBlock.z})
               </div>
