@@ -17,9 +17,8 @@ export const metadata: Metadata = {
   description:
     'Interaktive 3D-WebGL-Plattform zum Erlernen, Filtern, Einreichen und Bewerten von Minecraft JumpLeague Cuts & Abkürzungen.',
   icons: {
-    icon: '/images/jumpleague-logo.png?v=2',
-    shortcut: '/images/jumpleague-logo.png?v=2',
-    apple: '/images/jumpleague-logo.png?v=2',
+    icon: '/images/jumpleague-logo.png?v=3',
+    apple: '/images/jumpleague-logo.png?v=3',
   },
 };
 
