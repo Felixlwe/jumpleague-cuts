@@ -48,12 +48,9 @@ function ClientModuleDetailHud() {
 
   return (
     <div className="pointer-events-none fixed inset-0 z-10 flex flex-col justify-between p-4 sm:p-5">
-      {/* Top/Middle Workspace: Left column (TopLeftBar + Vertical ControlsGuide); Explore / Submit / Admin on Right */}
+      {/* Top/Middle Workspace: TopLeftBar on Left; Explore / Submit / Admin on Right */}
       <div className="flex flex-1 items-start justify-between gap-4 overflow-hidden">
-        <div className="flex flex-col items-start gap-3">
-          <TopLeftBar />
-          <ControlsGuide />
-        </div>
+        <TopLeftBar />
 
         {activeMode === 'SUBMIT' ? (
           <SubmissionModal />
@@ -66,6 +63,9 @@ function ClientModuleDetailHud() {
           </div>
         )}
       </div>
+
+      {/* Middle of Left Sidebar: Vertical transparent ControlsGuide */}
+      <ControlsGuide />
 
       {/* Bottom Floating Toolbar: Camera Reset, Cut-Lines Toggle, Cut einreichen & Admin-Modus */}
       <BottomToolbar />
