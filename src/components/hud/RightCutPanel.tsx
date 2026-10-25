@@ -19,6 +19,7 @@ import {
   MOVEMENT_TECH_CONFIG,
 } from '@/constants/jumpleagueConfig';
 import { CutDifficulty } from '@/types/jumpleague';
+import { parseYouTubeEmbedUrl } from '@/lib/security';
 
 type SortCriterion = 'TIME_SAVED' | 'DIFFICULTY';
 
@@ -36,30 +37,6 @@ const CONSISTENCY_LABELS: Record<number, string> = {
   2: 'Riskant / Enges Timing',
   1: 'Extrem (1-Tick / Pixel-Perfect)',
 };
-
-function parseYouTubeEmbedUrl(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    let videoId: string | null = null;
-
-    if (parsed.hostname.includes('youtu.be')) {
-      videoId = parsed.pathname.replace('/', '').trim();
-    } else if (parsed.hostname.includes('youtube.com')) {
-      if (parsed.pathname.startsWith('/embed/')) {
-        videoId = parsed.pathname.replace('/embed/', '').split('/')[0];
-      } else {
-        videoId = parsed.searchParams.get('v');
-      }
-    }
-
-    if (videoId) {
-      return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&rel=0`;
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
 
 export const RightCutPanel: React.FC = () => {
   const [sortBy, setSortBy] = useState<SortCriterion>('TIME_SAVED');

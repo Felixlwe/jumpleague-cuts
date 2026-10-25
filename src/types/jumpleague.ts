@@ -33,6 +33,7 @@ export interface Cut {
   cameraTarget: Vector3D;        // Punkt, auf den die Kamera schaut
   videoUrl: string;              // URL zu .mp4/.webm Clip oder YouTube-Embed
   status: CutStatus;             // 'PENDING' für Community-Einsendungen, 'APPROVED' nach Admin-Check
+  verified?: boolean;            // false für unüberprüfte Community-Cuts, true nach Admin-Freigabe
   submittedBy: string;           // Ingame-Name des Einsenders
   createdAt: string;
 }

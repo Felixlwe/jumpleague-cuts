@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyAdminRequest } from '@/lib/serverAuth';
 
 /**
  * Next.js API Route: POST /api/import-module
  * Proxies and fetches raw Minecraft NBT data from modules.top to bypass CORS in the browser.
+ * Protected: Requires Administrator authorization.
  */
 export async function POST(req: NextRequest) {
+  if (!verifyAdminRequest(req)) {
+    return NextResponse.json(
+      {
+        error:
+          'Nicht autorisiert. Für Modul-Imports sind Administrator-Rechte erforderlich.',
+      },
+      { status: 401 }
+    );
+  }
+
   try {
     const body = await req.json();
     const rawModuleId = body.moduleId;

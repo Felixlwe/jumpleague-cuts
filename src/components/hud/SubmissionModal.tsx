@@ -20,6 +20,12 @@ import {
   MOVEMENT_TECH_CONFIG,
 } from '@/constants/jumpleagueConfig';
 import { CutDifficulty, MovementTech } from '@/types/jumpleague';
+import {
+  isValidVideoUrl,
+  MAX_CUT_NAME_LENGTH,
+  MAX_CUT_DESCRIPTION_LENGTH,
+  MAX_CUT_AUTHOR_LENGTH,
+} from '@/lib/security';
 
 export const SubmissionModal: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -50,9 +56,7 @@ export const SubmissionModal: React.FC = () => {
   const [techniques, setTechniques] = useState<MovementTech[]>(['STRAFE_45']);
   const [description, setDescription] = useState('');
   const [videoSourceType, setVideoSourceType] = useState<'URL' | 'FILE'>('URL');
-  const [videoUrl, setVideoUrl] = useState(
-    'https://assets.mixkit.co/videos/preview/mixkit-digital-animation-of-futuristic-devices-99786-large.mp4'
-  );
+  const [videoUrl, setVideoUrl] = useState('');
   const [localVideoName, setLocalVideoName] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submittedSuccess, setSubmittedSuccess] = useState(false);
@@ -86,11 +90,53 @@ export const SubmissionModal: React.FC = () => {
       return;
     }
 
-    if (!submittedBy.trim() || !name.trim() || !description.trim()) {
+    const trimmedAuthor = submittedBy.trim();
+    const trimmedName = name.trim();
+    const trimmedDesc = description.trim();
+    const trimmedVideo = videoUrl.trim();
+
+    if (!trimmedAuthor || !trimmedName || !trimmedDesc) {
       setErrorMessage(
         'Bitte fülle deinen Spielernamen, den Cut-Namen und die Lineup-Erklärung aus.'
       );
       return;
+    }
+
+    if (trimmedName.length > MAX_CUT_NAME_LENGTH) {
+      setErrorMessage(
+        `Der Cut-Name darf maximal ${MAX_CUT_NAME_LENGTH} Zeichen lang sein (aktuell: ${trimmedName.length}).`
+      );
+      return;
+    }
+
+    if (trimmedDesc.length > MAX_CUT_DESCRIPTION_LENGTH) {
+      setErrorMessage(
+        `Die Lineup-Erklärung darf maximal ${MAX_CUT_DESCRIPTION_LENGTH} Zeichen lang sein (aktuell: ${trimmedDesc.length}).`
+      );
+      return;
+    }
+
+    if (videoSourceType === 'URL') {
+      if (!trimmedVideo) {
+        setErrorMessage(
+          'Bitte gib eine Video-URL für den Cut an (z. B. YouTube oder .mp4 / .webm).'
+        );
+        return;
+      }
+
+      if (!isValidVideoUrl(trimmedVideo)) {
+        setErrorMessage(
+          'Ungültige Video-URL: Erlaubt sind ausschließlich sichere https://-Links von YouTube (youtube.com, youtu.be) oder direkte .mp4 / .webm Videodateien.'
+        );
+        return;
+      }
+    } else {
+      if (!trimmedVideo || !localVideoName) {
+        setErrorMessage(
+          'Bitte wähle eine lokale .mp4 oder .webm Videodatei als Beweis-Clip aus.'
+        );
+        return;
+      }
     }
 
     const camPos = draftCameraPosition ?? liveCameraPosition;
@@ -98,8 +144,8 @@ export const SubmissionModal: React.FC = () => {
 
     submitCut({
       moduleId: selectedModuleId,
-      name: name.trim(),
-      description: description.trim(),
+      name: trimmedName.slice(0, MAX_CUT_NAME_LENGTH),
+      description: trimmedDesc.slice(0, MAX_CUT_DESCRIPTION_LENGTH),
       timeSavedSeconds: Number(timeSavedSeconds),
       difficulty,
       consistencyRating,
@@ -117,14 +163,14 @@ export const SubmissionModal: React.FC = () => {
         y: Number(camTarget.y.toFixed(2)),
         z: Number(camTarget.z.toFixed(2)),
       },
-      videoUrl:
-        videoUrl.trim() ||
-        'https://assets.mixkit.co/videos/preview/mixkit-digital-animation-of-futuristic-devices-99786-large.mp4',
-      submittedBy: submittedBy.trim(),
+      videoUrl: trimmedVideo,
+      submittedBy: trimmedAuthor.slice(0, MAX_CUT_AUTHOR_LENGTH),
     });
 
     setName('');
     setDescription('');
+    setVideoUrl('');
+    setLocalVideoName(null);
     setSubmittedSuccess(true);
   };
 
@@ -288,12 +334,14 @@ export const SubmissionModal: React.FC = () => {
         <div className="space-y-2.5">
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                Spielername *
-              </label>
+              <div className="mb-1 flex items-center justify-between font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                <span>Spielername *</span>
+                <span className="text-[9px] text-zinc-500">max. {MAX_CUT_AUTHOR_LENGTH}</span>
+              </div>
               <input
                 type="text"
                 required
+                maxLength={MAX_CUT_AUTHOR_LENGTH}
                 value={submittedBy}
                 onChange={(e) => setSubmittedBy(e.target.value)}
                 placeholder="z.B. VeniCraft_JL"
@@ -321,12 +369,16 @@ export const SubmissionModal: React.FC = () => {
           </div>
 
           <div>
-            <label className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-              Cut-Name *
-            </label>
+            <div className="mb-1 flex items-center justify-between font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+              <span>Cut-Name *</span>
+              <span className={`text-[9px] ${name.length >= MAX_CUT_NAME_LENGTH ? 'text-amber-400 font-bold' : 'text-zinc-500'}`}>
+                {name.length}/{MAX_CUT_NAME_LENGTH}
+              </span>
+            </div>
             <input
               type="text"
               required
+              maxLength={MAX_CUT_NAME_LENGTH}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="z.B. Zaun-Neo auf Eichenstufe"
@@ -426,12 +478,16 @@ export const SubmissionModal: React.FC = () => {
         {/* =============================================================== */}
         <div className="space-y-2.5">
           <div>
-            <label className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-              Lineup-Erklärung (Schritt für Schritt) *
-            </label>
+            <div className="mb-1 flex items-center justify-between font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+              <span>Lineup-Erklärung (Schritt für Schritt) *</span>
+              <span className={`text-[9px] ${description.length >= MAX_CUT_DESCRIPTION_LENGTH ? 'text-amber-400 font-bold' : 'text-zinc-500'}`}>
+                {description.length}/{MAX_CUT_DESCRIPTION_LENGTH}
+              </span>
+            </div>
             <textarea
               rows={3}
               required
+              maxLength={MAX_CUT_DESCRIPTION_LENGTH}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="1. Stelle dich an die rechte Kante von...\n2. Ziele auf die Eichenstufe...\n3. Springe im 45°-Strafe ab..."

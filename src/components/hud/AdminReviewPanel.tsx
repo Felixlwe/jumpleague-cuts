@@ -24,30 +24,7 @@ import {
 } from '@/constants/jumpleagueConfig';
 import { CutStatus, MovementTech } from '@/types/jumpleague';
 import { parseSchematicFile } from '@/lib/schematicParser';
-
-function parseYouTubeEmbedUrl(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    let videoId: string | null = null;
-
-    if (parsed.hostname.includes('youtu.be')) {
-      videoId = parsed.pathname.replace('/', '').trim();
-    } else if (parsed.hostname.includes('youtube.com')) {
-      if (parsed.pathname.startsWith('/embed/')) {
-        videoId = parsed.pathname.replace('/embed/', '').split('/')[0];
-      } else {
-        videoId = parsed.searchParams.get('v');
-      }
-    }
-
-    if (videoId) {
-      return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&rel=0`;
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
+import { parseYouTubeEmbedUrl } from '@/lib/security';
 
 export const AdminReviewPanel: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<CutStatus>('PENDING');

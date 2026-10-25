@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ModuleDifficulty } from '@/types/jumpleague';
+import { verifyAdminRequest } from '@/lib/serverAuth';
 
 export interface ScrapedModuleInfo {
   id: string;
@@ -11,8 +12,19 @@ export interface ScrapedModuleInfo {
  * Next.js API Route: POST /api/import-all
  * Scrapes and extracts all available 1.20 JumpLeague modules from modules.top
  * along with their difficulty assignment (EASY, MEDIUM, HARD, ULTRA).
+ * Protected: Requires Administrator authorization.
  */
 export async function POST(req: NextRequest) {
+  if (!verifyAdminRequest(req)) {
+    return NextResponse.json(
+      {
+        error:
+          'Nicht autorisiert. Für Modul-Imports sind Administrator-Rechte erforderlich.',
+      },
+      { status: 401 }
+    );
+  }
+
   try {
     let source = '120';
     try {

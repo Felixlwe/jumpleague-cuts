@@ -28,6 +28,12 @@ import {
   addLocalDeletedModuleId,
   removeLocalDeletedModuleIds,
 } from '@/lib/moduleStorage';
+import {
+  isValidVideoUrl,
+  MAX_CUT_NAME_LENGTH,
+  MAX_CUT_DESCRIPTION_LENGTH,
+  MAX_CUT_AUTHOR_LENGTH,
+} from '@/lib/security';
 
 /**
  * LocalStorage fallback cache for module thumbnails (keyed by moduleId)
@@ -468,11 +474,23 @@ export const useJLStore = create<JLStoreState>()(
           cameraResetCounter: state.cameraResetCounter + 1,
         });
 
-        // 3. Echtes Soft-Delete per upsert in Supabase (merkt sich auch Mock-IDs dauerhaft)
+        // 3. Echtes Soft-Delete per upsert in Supabase (über geschütztes /api/admin Backend)
         try {
-          await deleteModuleInSupabase(moduleId, targetModule);
-        } catch (err) {
-          console.warn('[Store] Fehler beim Soft-Delete des Moduls in Supabase:', err);
+          await fetch('/api/admin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'delete_module',
+              moduleId,
+              fallbackModule: targetModule,
+            }),
+          });
+        } catch {
+          try {
+            await deleteModuleInSupabase(moduleId, targetModule);
+          } catch (err) {
+            console.warn('[Store] Fehler beim Soft-Delete des Moduls in Supabase:', err);
+          }
         }
       },
 
@@ -601,6 +619,11 @@ export const useJLStore = create<JLStoreState>()(
           } else {
             sessionStorage.removeItem('jl_admin_auth');
             sessionStorage.removeItem('jl_admin_mode');
+            void fetch('/api/admin', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'logout' }),
+            }).catch(() => {});
           }
         }
         set({
@@ -633,6 +656,25 @@ export const useJLStore = create<JLStoreState>()(
 
       syncModulesFromSupabase: async () => {
         set({ isSyncingWithSupabase: true });
+
+        // Synchronize admin authentication with secure server session
+        if (typeof window !== 'undefined') {
+          fetch('/api/admin')
+            .then((r) => r.json())
+            .then((data) => {
+              if (data && typeof data.authenticated === 'boolean') {
+                if (!data.authenticated) {
+                  sessionStorage.removeItem('jl_admin_auth');
+                  sessionStorage.removeItem('jl_admin_mode');
+                  set({ isAdminAuthenticated: false, isAdminMode: false });
+                } else {
+                  set({ isAdminAuthenticated: true });
+                }
+              }
+            })
+            .catch(() => {});
+        }
+
         try {
           // 1. Hole gelöschte IDs aus dem localStorage als verlässliches Backup
           const localDeleted = getLocalDeletedModuleIds();
@@ -929,10 +971,21 @@ export const useJLStore = create<JLStoreState>()(
         }),
 
       submitCut: (input) => {
+        const validatedName = input.name.trim().slice(0, MAX_CUT_NAME_LENGTH);
+        const validatedDesc = input.description.trim().slice(0, MAX_CUT_DESCRIPTION_LENGTH);
+        const validatedAuthor =
+          input.submittedBy.trim().slice(0, MAX_CUT_AUTHOR_LENGTH) || 'Community';
+        const validatedVideo = isValidVideoUrl(input.videoUrl) ? input.videoUrl.trim() : '';
+
         const newCut: Cut = {
           ...input,
+          name: validatedName,
+          description: validatedDesc,
+          submittedBy: validatedAuthor,
+          videoUrl: validatedVideo,
           id: `cut-community-${Date.now()}`,
           status: 'PENDING',
+          verified: false,
           createdAt: new Date().toISOString(),
         };
         set((state) => ({
@@ -963,22 +1016,38 @@ export const useJLStore = create<JLStoreState>()(
       },
 
       approveCut: (cutId, overrides) => {
-        const payload: Partial<Cut> = { ...(overrides ?? {}), status: 'APPROVED' };
+        const payload: Partial<Cut> = {
+          ...(overrides ?? {}),
+          status: 'APPROVED',
+          verified: true,
+        };
         set((state) => ({
           cuts: state.cuts.map((c) =>
             c.id === cutId ? { ...c, ...payload } : c
           ),
         }));
-        void updateCutInSupabase(cutId, payload);
+        void fetch('/api/admin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'approve_cut', cutId, overrides }),
+        }).catch(() => {
+          void updateCutInSupabase(cutId, payload);
+        });
       },
 
       rejectCut: (cutId) => {
         set((state) => ({
           cuts: state.cuts.map((c) =>
-            c.id === cutId ? { ...c, status: 'REJECTED' } : c
+            c.id === cutId ? { ...c, status: 'REJECTED', verified: false } : c
           ),
         }));
-        void updateCutInSupabase(cutId, { status: 'REJECTED' });
+        void fetch('/api/admin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'reject_cut', cutId }),
+        }).catch(() => {
+          void updateCutInSupabase(cutId, { status: 'REJECTED' });
+        });
       },
 
       deleteCut: (cutId) => {
@@ -987,7 +1056,13 @@ export const useJLStore = create<JLStoreState>()(
           selectedCutId:
             state.selectedCutId === cutId ? null : state.selectedCutId,
         }));
-        void deleteCutFromSupabase(cutId);
+        void fetch('/api/admin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'delete_cut', cutId }),
+        }).catch(() => {
+          void deleteCutFromSupabase(cutId);
+        });
       },
 
       resetStoreToDefaults: () => {

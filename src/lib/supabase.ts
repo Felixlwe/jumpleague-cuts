@@ -68,6 +68,7 @@ export function mapDbRowToCut(row: Record<string, unknown>): Cut {
     cameraTarget: (row.camera_target || row.cameraTarget || { x: 0, y: 0, z: 0 }) as Vector3D,
     videoUrl: String(row.video_url || row.videoUrl || ''),
     status: (row.status || 'PENDING') as Cut['status'],
+    verified: row.status === 'APPROVED',
     submittedBy: String(row.author || row.submittedBy || 'Community'),
     createdAt: String(row.created_at || row.createdAt || new Date().toISOString()),
   };

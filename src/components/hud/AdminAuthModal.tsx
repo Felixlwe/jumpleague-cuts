@@ -60,10 +60,10 @@ export const AdminAuthModal: React.FC = () => {
     setErrorMessage(null);
 
     try {
-      const res = await fetch('/api/admin/verify', {
+      const res = await fetch('/api/admin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ action: 'login', password }),
       });
 
       const data = await res.json();

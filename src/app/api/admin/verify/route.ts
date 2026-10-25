@@ -1,11 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  getAdminSecretPassword,
+  setAdminSessionCookie,
+} from '@/lib/serverAuth';
 
+/**
+ * POST /api/admin/verify
+ * Legacy / convenience endpoint that verifies admin password and sets httpOnly cookie.
+ */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { password } = body;
 
-    const serverPassword = process.env.ADMIN_PASSWORD?.trim() || 'jumpleague-admin';
+    const serverPassword = getAdminSecretPassword();
+
+    if (!serverPassword) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'ADMIN_SECRET_PASSWORD ist auf dem Server nicht konfiguriert.',
+        },
+        { status: 500 }
+      );
+    }
 
     if (!password || typeof password !== 'string') {
       return NextResponse.json(
@@ -15,7 +33,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (password.trim() === serverPassword) {
-      return NextResponse.json({ success: true });
+      const res = NextResponse.json({
+        success: true,
+        authenticated: true,
+        message: 'Admin-Zugriff autorisiert.',
+      });
+      setAdminSessionCookie(res);
+      return res;
     }
 
     return NextResponse.json(
