@@ -11,17 +11,21 @@ import {
   X,
   Sparkles,
 } from 'lucide-react';
-import { Cut, JLModule } from '@/types/jumpleague';
+import { Cut, JLModule, ModuleDifficulty } from '@/types/jumpleague';
 import {
   CUT_DIFFICULTY_CONFIG,
+  MODULE_DIFFICULTY_CONFIG,
   getModuleDifficultyConfig,
 } from '@/constants/jumpleagueConfig';
 import { compareModuleIds } from '@/lib/moduleUtils';
+
+export type CutSidebarDifficultyFilter = 'ALL' | ModuleDifficulty;
 
 interface HomeCutsSidebarProps {
   cuts: Cut[];
   modules: JLModule[];
   isLoading?: boolean;
+  activeDifficulty?: CutSidebarDifficultyFilter;
   onSelectModule?: (moduleId: string) => void;
   onSelectCut?: (cutId: string) => void;
 }
@@ -30,16 +34,49 @@ export const HomeCutsSidebar: React.FC<HomeCutsSidebarProps> = ({
   cuts,
   modules,
   isLoading = false,
+  activeDifficulty = 'ALL',
   onSelectModule,
   onSelectCut,
 }) => {
   const [cutSearch, setCutSearch] = useState('');
 
-  // 1. Filter approved cuts
-  const approvedCuts = useMemo(
-    () => cuts.filter((c) => c.status === 'APPROVED'),
-    [cuts]
-  );
+  // Module difficulty resolver (supports direct module lookups and prefix fallbacks)
+  const getModuleDifficulty = useMemo(() => {
+    const cache = new Map<string, ModuleDifficulty>();
+    for (const m of modules) {
+      const cleanId = m.id.replace(/^#+/, '').toLowerCase();
+      cache.set(cleanId, m.difficulty);
+      if (m.shortCode) {
+        cache.set(m.shortCode.replace(/^#+/, '').toLowerCase(), m.difficulty);
+      }
+    }
+    return (modId: string): ModuleDifficulty => {
+      const clean = modId.replace(/^#+/, '').toLowerCase();
+      if (cache.has(clean)) return cache.get(clean)!;
+      const upper = clean.toUpperCase();
+      if (upper.startsWith('E')) return 'EASY';
+      if (upper.startsWith('M')) return 'MEDIUM';
+      if (upper.startsWith('H')) return 'HARD';
+      if (upper.startsWith('U')) return 'ULTRA';
+      return 'MEDIUM';
+    };
+  }, [modules]);
+
+  // Active difficulty configuration for styling
+  const activeDifficultyConfig = useMemo(() => {
+    if (!activeDifficulty || activeDifficulty === 'ALL') return null;
+    return MODULE_DIFFICULTY_CONFIG[activeDifficulty] || null;
+  }, [activeDifficulty]);
+
+  // 1. Filter approved cuts and apply active difficulty filter if set
+  const approvedCuts = useMemo(() => {
+    return cuts.filter((c) => {
+      if (c.status !== 'APPROVED') return false;
+      if (!activeDifficulty || activeDifficulty === 'ALL') return true;
+      const modDiff = getModuleDifficulty(c.moduleId);
+      return modDiff === activeDifficulty;
+    });
+  }, [cuts, activeDifficulty, getModuleDifficulty]);
 
   // 2. Group by moduleId and sort numerically (E1, E2 ... E11, E17, M1, etc.)
   const groupedModuleCuts = useMemo(() => {
@@ -126,12 +163,30 @@ export const HomeCutsSidebar: React.FC<HomeCutsSidebarProps> = ({
       <div className="border-b border-white/10 pb-3.5 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.25)]">
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-xl border transition-colors shadow-sm"
+              style={{
+                borderColor: activeDifficultyConfig
+                  ? `${activeDifficultyConfig.color}50`
+                  : 'rgba(16, 185, 129, 0.3)',
+                backgroundColor: activeDifficultyConfig
+                  ? `${activeDifficultyConfig.color}20`
+                  : 'rgba(16, 185, 129, 0.15)',
+                color: activeDifficultyConfig?.color ?? '#10b981',
+                boxShadow: activeDifficultyConfig
+                  ? `0 0 15px ${activeDifficultyConfig.color}30`
+                  : '0 0 15px rgba(16, 185, 129, 0.25)',
+              }}
+            >
               <Route className="h-4 w-4" />
             </div>
             <div>
               <h2 className="text-sm font-bold text-white tracking-tight flex items-center gap-1.5">
-                <span>Alle Cuts</span>
+                <span>
+                  {activeDifficultyConfig
+                    ? `${activeDifficultyConfig.label} Cuts`
+                    : 'Alle Cuts'}
+                </span>
                 <span className="font-mono text-[11px] font-normal text-zinc-400">
                   (nach Modul)
                 </span>
@@ -139,7 +194,18 @@ export const HomeCutsSidebar: React.FC<HomeCutsSidebarProps> = ({
             </div>
           </div>
 
-          <span className="flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-0.5 font-mono text-[11px] font-bold text-emerald-300">
+          <span
+            className="flex items-center gap-1 rounded-full border px-2.5 py-0.5 font-mono text-[11px] font-bold transition-colors"
+            style={{
+              borderColor: activeDifficultyConfig
+                ? `${activeDifficultyConfig.color}50`
+                : 'rgba(16, 185, 129, 0.3)',
+              backgroundColor: activeDifficultyConfig
+                ? `${activeDifficultyConfig.color}18`
+                : 'rgba(16, 185, 129, 0.15)',
+              color: activeDifficultyConfig?.color ?? '#6ee7b7',
+            }}
+          >
             <Sparkles className="h-3 w-3" />
             {approvedCuts.length} Cuts
           </span>
@@ -192,6 +258,8 @@ export const HomeCutsSidebar: React.FC<HomeCutsSidebarProps> = ({
                   Suche zurücksetzen
                 </button>
               </>
+            ) : activeDifficultyConfig ? (
+              `Bisher wurden noch keine verifizierten Cuts für ${activeDifficultyConfig.label}-Module eingereicht.`
             ) : (
               'Bisher wurden noch keine verifizierten Cuts für die Module eingereicht.'
             )}
@@ -309,6 +377,7 @@ export const HomeCutsSidebar: React.FC<HomeCutsSidebarProps> = ({
         <span>
           {groupedModuleCuts.length}{' '}
           {groupedModuleCuts.length === 1 ? 'Modul' : 'Module'} mit Cuts
+          {activeDifficultyConfig ? ` (${activeDifficultyConfig.label})` : ''}
         </span>
         <span className="text-zinc-400">Klick = Direkt zum Cut</span>
       </div>

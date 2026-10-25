@@ -835,6 +835,7 @@ export default function ModuleHubPage() {
               cuts={cuts}
               modules={modules}
               isLoading={isLoading}
+              activeDifficulty={activeTab}
               onSelectModule={selectModule}
               onSelectCut={selectCut}
             />
