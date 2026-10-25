@@ -277,12 +277,7 @@ const MinecraftSpectatorControls: React.FC = () => {
     const handleBlur = () => {
       keysPressed.current.clear();
       isRightMouseDown.current = false;
-      if (
-        typeof document !== 'undefined' &&
-        document.pointerLockElement === canvas
-      ) {
-        document.exitPointerLock?.();
-      }
+      document.body.style.cursor = 'auto';
     };
 
     const handleContextMenu = (e: MouseEvent) => {
@@ -291,40 +286,22 @@ const MinecraftSpectatorControls: React.FC = () => {
 
     const handleMouseDown = (e: MouseEvent) => {
       if (e.button === 2) {
-        // Right click down: initiate free-look
+        // Right click down: initiate free-look without browser pointerLock banner
         transitionRef.current = null;
         isRightMouseDown.current = true;
         lastMousePos.current = { x: e.clientX, y: e.clientY };
-
-        try {
-          if (canvas.requestPointerLock) {
-            canvas.requestPointerLock();
-          }
-        } catch {
-          // Fallback via clientX/clientY delta handles rotation
-        }
+        document.body.style.cursor = 'grabbing';
       }
     };
 
     const handleMouseMove = (e: MouseEvent) => {
       if (!isRightMouseDown.current) return;
 
-      let deltaX = 0;
-      let deltaY = 0;
+      const deltaX = e.clientX - lastMousePos.current.x;
+      const deltaY = e.clientY - lastMousePos.current.y;
+      lastMousePos.current = { x: e.clientX, y: e.clientY };
 
-      if (
-        typeof document !== 'undefined' &&
-        document.pointerLockElement === canvas
-      ) {
-        deltaX = e.movementX || 0;
-        deltaY = e.movementY || 0;
-      } else {
-        deltaX = e.clientX - lastMousePos.current.x;
-        deltaY = e.clientY - lastMousePos.current.y;
-        lastMousePos.current = { x: e.clientX, y: e.clientY };
-      }
-
-      const SENSITIVITY = 0.0022;
+      const SENSITIVITY = 0.0024;
       yawRef.current -= deltaX * SENSITIVITY;
       pitchRef.current -= deltaY * SENSITIVITY;
 
@@ -344,12 +321,7 @@ const MinecraftSpectatorControls: React.FC = () => {
     const handleMouseUp = (e: MouseEvent) => {
       if (e.button === 2) {
         isRightMouseDown.current = false;
-        if (
-          typeof document !== 'undefined' &&
-          document.pointerLockElement === canvas
-        ) {
-          document.exitPointerLock?.();
-        }
+        document.body.style.cursor = 'auto';
       }
     };
 
@@ -380,12 +352,7 @@ const MinecraftSpectatorControls: React.FC = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('wheel', handleWheel);
-      if (
-        typeof document !== 'undefined' &&
-        document.pointerLockElement === canvas
-      ) {
-        document.exitPointerLock?.();
-      }
+      document.body.style.cursor = 'auto';
     };
   }, [camera, gl.domElement]);
 
