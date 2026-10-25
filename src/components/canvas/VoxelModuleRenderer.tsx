@@ -5,9 +5,7 @@ import React, {
   useEffect,
   useCallback,
   useRef,
-  useState,
 } from 'react';
-import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { Edges } from '@react-three/drei';
 import { ThreeEvent, useThree, useFrame } from '@react-three/fiber';
@@ -22,32 +20,6 @@ import {
   getAtlasMaterial,
   getTranslucentAtlasMaterial,
 } from '@/lib/mcmetaLoader';
-
-/**
- * Bottom control hint for Minecraft-Spectator flight controls
- */
-const SpectatorControlsHint: React.FC = () => {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted || typeof document === 'undefined') return null;
-
-  return createPortal(
-    <div className="pointer-events-none fixed bottom-4 left-1/2 z-20 -translate-x-1/2 select-none">
-      <div className="flex items-center gap-2 rounded-full border border-white/10 bg-zinc-950/80 px-4 py-1.5 font-mono text-[11px] text-zinc-300 shadow-2xl backdrop-blur-md">
-        <span className="font-semibold text-cyan-400">WASD</span>: Bewegen
-        <span className="text-zinc-600">|</span>
-        <span className="font-semibold text-cyan-400">Space/Shift</span>: Hoch/Runter
-        <span className="text-zinc-600">|</span>
-        <span className="font-semibold text-cyan-400">Rechtsklick halten</span>: Umschauen
-      </div>
-    </div>,
-    document.body
-  );
-};
 
 /**
  * Minecraft Spectator Flight Controller (FlyControls):
@@ -732,7 +704,6 @@ export const VoxelModuleRenderer: React.FC = () => {
     return (
       <group>
         <MinecraftSpectatorControls />
-        <SpectatorControlsHint />
         <WorldHtml position={[0, 4, 10]} center>
           <div className="flex items-center gap-2.5 rounded-xl border border-emerald-500/40 bg-zinc-950/90 px-4 py-2 font-mono text-xs text-emerald-400 shadow-2xl backdrop-blur-md">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent" />
@@ -747,9 +718,6 @@ export const VoxelModuleRenderer: React.FC = () => {
     <group>
       {/* Minecraft Spectator Free-Look & WASD Flight Camera Controller */}
       <MinecraftSpectatorControls />
-
-      {/* Control Hint UI */}
-      <SpectatorControlsHint />
 
       {/* 1. OPAQUE & ALPHA-TESTED MESH (Solid blocks, leaves, ladders, fences, etc. in 1 single Draw Call) */}
       {mergedResult?.opaqueGeometry && atlasMaterial && (
