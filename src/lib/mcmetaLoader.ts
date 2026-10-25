@@ -449,20 +449,30 @@ export function getAtlasUvBox(
   atlasData: Record<string, [number, number, number, number]>
 ): [number, number, number, number] {
   // 1. Direct candidate lookups from the model texture identifier
-  const cleanTex = texName.replace(/^minecraft:/, '').replace(/^block\//, '');
+  let rawClean = texName.replace(/^minecraft:/, '').replace(/^block\//, '');
+  rawClean = rawClean.replace(/^(waxed_|infested_)/, '');
+
   const texCandidates = [
-    `block/${cleanTex}`,
-    cleanTex,
-    `minecraft:block/${cleanTex}`,
-    `item/${cleanTex}`,
-    `entity/${cleanTex}`,
+    `block/${rawClean}`,
+    rawClean,
+    `minecraft:block/${rawClean}`,
+    `item/${rawClean}`,
+    `entity/${rawClean}`,
   ];
   for (const c of texCandidates) {
     if (atlasData[c]) return atlasData[c];
   }
 
-  // 2. Resolve based on block name (e.g. stairs, slabs, walls, fences, pressure plates, panes)
-  const cleanBlock = blockName.replace(/^minecraft:/, '').split('[')[0].trim();
+  // 1b. Check resolved name from rawClean (e.g. if rawClean was a wall or trapdoor identifier)
+  const resolvedClean = resolveBlockTextureName(rawClean);
+  if (resolvedClean && resolvedClean !== rawClean) {
+    if (atlasData[`block/${resolvedClean}`]) return atlasData[`block/${resolvedClean}`];
+    if (atlasData[resolvedClean]) return atlasData[resolvedClean];
+  }
+
+  // 2. Resolve based on block name (e.g. stairs, slabs, walls, fences, pressure plates, panes, trapdoors)
+  let cleanBlock = blockName.replace(/^minecraft:/, '').split('[')[0].trim();
+  cleanBlock = cleanBlock.replace(/^(waxed_|infested_)/, '');
   const resolved = resolveBlockTextureName(cleanBlock);
   const blockCandidates = [
     `block/${cleanBlock}`,
@@ -538,13 +548,37 @@ export function isFullOpaqueCube(blockTypeString: string): boolean {
     return false;
   }
 
+  // Full solid opaque blocks that contain substrings that would otherwise match exclusion rules below
+  if (
+    clean === 'grass_block' ||
+    clean === 'honeycomb_block' ||
+    clean === 'packed_ice' ||
+    clean === 'blue_ice' ||
+    clean.includes('packed_ice_bricks') ||
+    clean === 'redstone_block' ||
+    clean === 'redstone_lamp' ||
+    clean.includes('redstone_ore') ||
+    clean.includes('bamboo_planks') ||
+    clean.includes('bamboo_mosaic') ||
+    clean.includes('bamboo_block') ||
+    clean === 'mangrove_roots' ||
+    clean === 'muddy_mangrove_roots' ||
+    clean.includes('mushroom_block') ||
+    clean === 'mushroom_stem'
+  ) {
+    return true;
+  }
+
   // Non-full or transparent / translucent / cutout blocks
   if (
     clean.includes('glass') ||
     clean.includes('leaves') ||
-    clean.includes('ice') ||
+    clean === 'ice' ||
+    clean === 'frosted_ice' ||
+    clean === 'brittle_ice' ||
     clean.includes('slime') ||
-    clean.includes('honey') ||
+    clean === 'honey_block' ||
+    clean === 'honey' ||
     clean.includes('spawner') ||
     clean.includes('water') ||
     clean.includes('lava') ||
@@ -631,18 +665,36 @@ export function isFullOpaqueCube(blockTypeString: string): boolean {
 
 /**
  * Returns true if the block requires smooth alpha blending (water, ice, stained glass, slime, honey)
+ * Opaque solid blocks (honeycomb_block, packed_ice, blue_ice) are strictly excluded!
  */
 export function isTranslucentBlock(blockTypeString: string): boolean {
   if (!blockTypeString) return false;
-  const clean = blockTypeString.toLowerCase().replace(/^minecraft:/, '');
+  const clean = blockTypeString.toLowerCase().replace(/^minecraft:/, '').split('[')[0].trim();
+
+  // Full solid opaque blocks MUST NEVER be placed in translucentGeometry
+  if (
+    clean.includes('honeycomb') ||
+    clean.includes('packed_ice') ||
+    clean.includes('blue_ice') ||
+    clean.includes('ice_bricks') ||
+    clean === 'water_cauldron'
+  ) {
+    return false;
+  }
+
   return (
-    clean.includes('water') ||
-    clean.includes('ice') ||
-    clean.includes('frosted_ice') ||
-    clean.includes('slime') ||
-    clean.includes('honey') ||
-    clean.includes('stained_glass') ||
-    clean.includes('tinted_glass')
+    clean === 'water' ||
+    clean.startsWith('water_') ||
+    clean === 'bubble_column' ||
+    clean === 'ice' ||
+    clean === 'frosted_ice' ||
+    clean === 'brittle_ice' ||
+    clean === 'slime_block' ||
+    clean === 'slime' ||
+    clean === 'honey_block' ||
+    clean === 'honey' ||
+    (clean.includes('stained_glass') && !clean.includes('pane')) ||
+    clean === 'tinted_glass'
   );
 }
 
@@ -785,7 +837,39 @@ export function getRawBlockQuads(
   mcmeta: McmetaData
 ): RawQuadData[] {
   try {
-    const { name, props } = parseBlockIdentifier(blockTypeString);
+    let { name, props } = parseBlockIdentifier(blockTypeString);
+
+    // Map legacy Minecraft 1.12 names to modern 1.14+ equivalents
+    const LEGACY_ALIASES: Record<string, string> = {
+      trapdoor: 'oak_trapdoor',
+      wooden_door: 'oak_door',
+      fence: 'oak_fence',
+      fence_gate: 'oak_fence_gate',
+      wooden_slab: 'oak_slab',
+      leaves: 'oak_leaves',
+      log: 'oak_log',
+      leaves2: 'acacia_leaves',
+      log2: 'acacia_log',
+      sign: 'oak_sign',
+      wall_sign: 'oak_wall_sign',
+      banner: 'white_banner',
+      wall_banner: 'white_wall_banner',
+      bed: 'red_bed',
+      carpet: 'white_carpet',
+      concrete: 'white_concrete',
+      concrete_powder: 'white_concrete_powder',
+      stained_hardened_clay: 'terracotta',
+      hardened_clay: 'terracotta',
+      wool: 'white_wool',
+      stained_glass: 'white_stained_glass',
+      stained_glass_pane: 'white_stained_glass_pane',
+      double_stone_slab: 'smooth_stone',
+      double_wooden_slab: 'oak_planks',
+      step: 'stone_slab',
+    };
+    if (LEGACY_ALIASES[name]) {
+      name = LEGACY_ALIASES[name];
+    }
 
     if (
       name === 'air' ||
@@ -865,8 +949,71 @@ export function getRawBlockQuads(
       }
     }
 
+    // 3. Auto-Heal: Walls (z.B. cobblestone_wall, andesite_wall, brick_wall)
+    if (
+      name.includes('wall') &&
+      !name.includes('sign') &&
+      !name.includes('head') &&
+      !name.includes('skull') &&
+      !name.includes('torch') &&
+      !name.includes('banner')
+    ) {
+      const hasConn =
+        props.north !== undefined ||
+        props.south !== undefined ||
+        props.east !== undefined ||
+        props.west !== undefined;
+
+      if (!hasConn) {
+        props.north = neighborSolidMap.north ? 'low' : 'none';
+        props.south = neighborSolidMap.south ? 'low' : 'none';
+        props.east = neighborSolidMap.east ? 'low' : 'none';
+        props.west = neighborSolidMap.west ? 'low' : 'none';
+      }
+
+      const allNone =
+        props.north === 'none' &&
+        props.south === 'none' &&
+        props.east === 'none' &&
+        props.west === 'none';
+
+      // Standalone walls or walls with something placed on top must render center post
+      if (props.up === undefined || allNone || neighborSolidMap.up) {
+        props.up = 'true';
+      }
+    }
+
+    // 4. Auto-Heal: Zäune, Eisengitter, Glasscheiben
+    if (
+      (name.includes('fence') && !name.includes('gate')) ||
+      name.includes('bars') ||
+      name.includes('pane')
+    ) {
+      const hasConn =
+        props.north !== undefined ||
+        props.south !== undefined ||
+        props.east !== undefined ||
+        props.west !== undefined;
+
+      if (!hasConn) {
+        props.north = neighborSolidMap.north ? 'true' : 'false';
+        props.south = neighborSolidMap.south ? 'true' : 'false';
+        props.east = neighborSolidMap.east ? 'true' : 'false';
+        props.west = neighborSolidMap.west ? 'true' : 'false';
+      }
+    }
+
+    // 5. Auto-Heal: Falltüren ohne definierte Orientierung
+    if (name.includes('trapdoor')) {
+      if (!props.facing) props.facing = 'north';
+      if (!props.half) props.half = 'bottom';
+      if (!props.open) props.open = 'false';
+    }
+
     const def = (mcmeta.blockDefinitions[name] ||
-      mcmeta.blockDefinitions[`${name}_block`]) as
+      mcmeta.blockDefinitions[`${name}_block`] ||
+      mcmeta.blockDefinitions[name.replace(/^waxed_/, '')] ||
+      mcmeta.blockDefinitions[name.replace(/^infested_/, '')]) as
       | {
           variants?: Record<string, AppliedModel | AppliedModel[]>;
           multipart?: Array<{
