@@ -302,6 +302,12 @@ const MinecraftSpectatorControls: React.FC = () => {
       keysPressed.current.clear();
       isRightMouseDown.current = false;
       document.body.classList.remove('free-look-active');
+      if (
+        typeof document !== 'undefined' &&
+        document.pointerLockElement === canvas
+      ) {
+        document.exitPointerLock?.();
+      }
     };
 
     const handleContextMenu = (e: MouseEvent) => {
@@ -310,14 +316,16 @@ const MinecraftSpectatorControls: React.FC = () => {
 
     const handlePointerDownEvent = (e: PointerEvent) => {
       if (e.button === 2) {
-        // Right click down: initiate free-look, hide cursor & fix center crosshair without browser banner
+        // Right click down: initiate free-look, lock mouse in center
         transitionRef.current = null;
         isRightMouseDown.current = true;
         lastMousePos.current = { x: e.clientX, y: e.clientY };
         document.body.classList.add('free-look-active');
 
         try {
-          canvas.setPointerCapture(e.pointerId);
+          if (canvas.requestPointerLock) {
+            canvas.requestPointerLock();
+          }
         } catch {
           // ignore
         }
@@ -325,13 +333,24 @@ const MinecraftSpectatorControls: React.FC = () => {
     };
 
     const handlePointerMoveEvent = (e: PointerEvent) => {
-      if (!isRightMouseDown.current) return;
+      const isLocked =
+        typeof document !== 'undefined' &&
+        document.pointerLockElement === canvas;
+      if (!isRightMouseDown.current && !isLocked) return;
 
-      const deltaX = e.clientX - lastMousePos.current.x;
-      const deltaY = e.clientY - lastMousePos.current.y;
-      lastMousePos.current = { x: e.clientX, y: e.clientY };
+      let deltaX = 0;
+      let deltaY = 0;
 
-      const SENSITIVITY = 0.0024;
+      if (isLocked) {
+        deltaX = e.movementX || 0;
+        deltaY = e.movementY || 0;
+      } else {
+        deltaX = e.clientX - lastMousePos.current.x;
+        deltaY = e.clientY - lastMousePos.current.y;
+        lastMousePos.current = { x: e.clientX, y: e.clientY };
+      }
+
+      const SENSITIVITY = 0.0022;
       yawRef.current -= deltaX * SENSITIVITY;
       pitchRef.current -= deltaY * SENSITIVITY;
 
@@ -352,13 +371,22 @@ const MinecraftSpectatorControls: React.FC = () => {
       if (e.button === 2) {
         isRightMouseDown.current = false;
         document.body.classList.remove('free-look-active');
-        try {
-          if (canvas.hasPointerCapture(e.pointerId)) {
-            canvas.releasePointerCapture(e.pointerId);
-          }
-        } catch {
-          // ignore
+        if (
+          typeof document !== 'undefined' &&
+          document.pointerLockElement === canvas
+        ) {
+          document.exitPointerLock?.();
         }
+      }
+    };
+
+    const handlePointerLockChange = () => {
+      if (
+        typeof document !== 'undefined' &&
+        document.pointerLockElement !== canvas
+      ) {
+        isRightMouseDown.current = false;
+        document.body.classList.remove('free-look-active');
       }
     };
 
@@ -379,6 +407,7 @@ const MinecraftSpectatorControls: React.FC = () => {
     window.addEventListener('pointermove', handlePointerMoveEvent);
     window.addEventListener('pointerup', handlePointerUpEvent);
     canvas.addEventListener('wheel', handleWheel, { passive: false });
+    document.addEventListener('pointerlockchange', handlePointerLockChange);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
@@ -389,7 +418,14 @@ const MinecraftSpectatorControls: React.FC = () => {
       window.removeEventListener('pointermove', handlePointerMoveEvent);
       window.removeEventListener('pointerup', handlePointerUpEvent);
       canvas.removeEventListener('wheel', handleWheel);
+      document.removeEventListener('pointerlockchange', handlePointerLockChange);
       document.body.classList.remove('free-look-active');
+      if (
+        typeof document !== 'undefined' &&
+        document.pointerLockElement === canvas
+      ) {
+        document.exitPointerLock?.();
+      }
       styleEl.remove();
     };
   }, [camera, gl.domElement]);
