@@ -31,6 +31,7 @@ import { JLModule, ModuleDifficulty, VoxelBlock } from '@/types/jumpleague';
 import { parseSchematicFile } from '@/lib/schematicParser';
 import { AdminAuthModal } from '@/components/hud/AdminAuthModal';
 import { CreateModuleModal } from '@/components/hud/CreateModuleModal';
+import { HomeCutsSidebar } from '@/components/home/HomeCutsSidebar';
 
 type TabCategory = 'ALL' | ModuleDifficulty;
 
@@ -379,6 +380,7 @@ export default function ModuleHubPage() {
   const filters = useJLStore((s) => s.filters);
   const isLoading = useJLStore((s) => s.isLoading);
   const selectModule = useJLStore((s) => s.selectModule);
+  const selectCut = useJLStore((s) => s.selectCut);
   const updateFilters = useJLStore((s) => s.updateFilters);
 
   // Global Admin Store
@@ -612,7 +614,7 @@ export default function ModuleHubPage() {
       />
 
       {/* Main Content Container */}
-      <div className="relative z-10 mx-auto flex min-h-screen max-w-7xl flex-col px-4 pt-16 pb-24 sm:px-6 lg:px-8">
+      <div className="relative z-10 mx-auto flex min-h-screen max-w-7xl 2xl:max-w-[1720px] flex-col px-4 pt-16 pb-24 sm:px-6 lg:px-8">
         {/* Top Hero & Branding Header */}
         <header className="mb-8 flex flex-col justify-between gap-6 rounded-3xl border border-white/10 bg-zinc-950/75 p-6 shadow-2xl backdrop-blur-xl lg:flex-row lg:items-center">
           <div className="flex items-start gap-4 sm:items-center">
@@ -735,93 +737,109 @@ export default function ModuleHubPage() {
           </div>
         </section>
 
-        {/* Modul-Grid: Skeletons while loading; Numerisch sortierte Kacheln with Background Thumbnails */}
-        {isLoading ? (
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {Array.from({ length: 15 }).map((_, idx) => (
-              <SkeletonModuleCard key={`skel-${idx}`} />
-            ))}
-          </section>
-        ) : visibleModules.length === 0 && !isAdminMode ? (
-          <div className="flex flex-1 flex-col items-center justify-center rounded-3xl border border-white/10 bg-zinc-950/60 p-12 text-center backdrop-blur-xl">
-            <Compass className="mb-3 h-10 w-10 text-zinc-600" />
-            <h2 className="text-base font-bold text-zinc-200">
-              Keine passenden Module gefunden
-            </h2>
-            <p className="mt-1 text-xs text-zinc-500">
-              Versuche eine andere Schwierigkeits-Kategorie oder setze deine Suche zurück.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setSearchQuery('');
-                updateFilters({ moduleDifficulty: 'ALL' });
-              }}
-              className="mt-4 rounded-xl border border-emerald-400/40 bg-emerald-500/15 px-4 py-2 text-xs font-bold text-emerald-300 transition hover:bg-emerald-500/25"
-            >
-              Filter zurücksetzen
-            </button>
-          </div>
-        ) : (
-          <section className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 py-2">
-            {/* ADMIN ONLY: First Card in Grid to Add a New Module */}
-            {isAdminMode && (
-              <button
-                type="button"
-                onClick={() => setIsCreateModalOpen(true)}
-                className="jl-admin-add-card group relative flex min-h-[140px] flex-col items-center justify-center gap-2.5 rounded-xl border-2 border-dashed border-purple-500/50 bg-purple-500/10 p-4 text-center select-none"
-              >
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-purple-400/50 bg-purple-500/25 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.35)] transition-transform duration-200 group-hover:scale-110">
-                  <Plus className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="font-mono text-xs font-bold text-purple-300">
-                    + Neues Modul hinzufügen
-                  </div>
-                  <div className="text-[10px] text-zinc-400">
-                    .schem / .litematic für {activeTab} importieren
-                  </div>
-                </div>
-              </button>
+        {/* Workspace: 3/4 Modul-Kacheln links + 1/4 Cuts-Sidebar rechts */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+          {/* LEFT 3/4 COLUMN: MODUL-KACHELN */}
+          <div className="lg:col-span-3 min-w-0">
+            {isLoading ? (
+              <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4">
+                {Array.from({ length: 12 }).map((_, idx) => (
+                  <SkeletonModuleCard key={`skel-${idx}`} />
+                ))}
+              </section>
+            ) : visibleModules.length === 0 && !isAdminMode ? (
+              <div className="flex flex-1 flex-col items-center justify-center rounded-3xl border border-white/10 bg-zinc-950/60 p-12 text-center backdrop-blur-xl">
+                <Compass className="mb-3 h-10 w-10 text-zinc-600" />
+                <h2 className="text-base font-bold text-zinc-200">
+                  Keine passenden Module gefunden
+                </h2>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Versuche eine andere Schwierigkeits-Kategorie oder setze deine Suche zurück.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    updateFilters({ moduleDifficulty: 'ALL' });
+                  }}
+                  className="mt-4 rounded-xl border border-emerald-400/40 bg-emerald-500/15 px-4 py-2 text-xs font-bold text-emerald-300 transition hover:bg-emerald-500/25"
+                >
+                  Filter zurücksetzen
+                </button>
+              </div>
+            ) : (
+              <section className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 py-2">
+                {/* ADMIN ONLY: First Card in Grid to Add a New Module */}
+                {isAdminMode && (
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateModalOpen(true)}
+                    className="jl-admin-add-card group relative flex min-h-[140px] flex-col items-center justify-center gap-2.5 rounded-xl border-2 border-dashed border-purple-500/50 bg-purple-500/10 p-4 text-center select-none"
+                  >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-purple-400/50 bg-purple-500/25 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.35)] transition-transform duration-200 group-hover:scale-110">
+                      <Plus className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="font-mono text-xs font-bold text-purple-300">
+                        + Neues Modul hinzufügen
+                      </div>
+                      <div className="text-[10px] text-zinc-400">
+                        .schem / .litematic für {activeTab} importieren
+                      </div>
+                    </div>
+                  </button>
+                )}
+
+                {visibleModules.map((mod) => {
+                  const diffCfg = getModuleDifficultyConfig(mod.difficulty);
+
+                  // Approved cuts in this module
+                  const moduleCuts = cuts.filter(
+                    (c) => c.moduleId === mod.id && c.status === 'APPROVED'
+                  );
+                  const cutCount = moduleCuts.length;
+                  const maxTimeSaved =
+                    moduleCuts.length > 0
+                      ? Math.max(...moduleCuts.map((c) => c.timeSavedSeconds))
+                      : 0;
+
+                  // Clean display name (strip leading 'E1 - ' if present)
+                  const cleanName = mod.name.replace(/^[A-Z0-9]+\s*-\s*/i, '');
+                  const cleanHrefId = mod.id.replace(/^#+/, '');
+
+                  return (
+                    <ModuleCard
+                      key={mod.id}
+                      mod={mod}
+                      diffCfg={diffCfg}
+                      cutCount={cutCount}
+                      maxTimeSaved={maxTimeSaved}
+                      cleanName={cleanName}
+                      cleanHrefId={cleanHrefId}
+                      isAdminMode={isAdminMode}
+                      isReplacing={isReplacing}
+                      moduleToReplace={moduleToReplace}
+                      onSelect={selectModule}
+                      onTriggerReplace={handleTriggerReplace}
+                      onDelete={setModuleToDelete}
+                    />
+                  );
+                })}
+              </section>
             )}
+          </div>
 
-            {visibleModules.map((mod) => {
-              const diffCfg = getModuleDifficultyConfig(mod.difficulty);
-
-              // Approved cuts in this module
-              const moduleCuts = cuts.filter(
-                (c) => c.moduleId === mod.id && c.status === 'APPROVED'
-              );
-              const cutCount = moduleCuts.length;
-              const maxTimeSaved =
-                moduleCuts.length > 0
-                  ? Math.max(...moduleCuts.map((c) => c.timeSavedSeconds))
-                  : 0;
-
-              // Clean display name (strip leading 'E1 - ' if present)
-              const cleanName = mod.name.replace(/^[A-Z0-9]+\s*-\s*/i, '');
-              const cleanHrefId = mod.id.replace(/^#+/, '');
-
-              return (
-                <ModuleCard
-                  key={mod.id}
-                  mod={mod}
-                  diffCfg={diffCfg}
-                  cutCount={cutCount}
-                  maxTimeSaved={maxTimeSaved}
-                  cleanName={cleanName}
-                  cleanHrefId={cleanHrefId}
-                  isAdminMode={isAdminMode}
-                  isReplacing={isReplacing}
-                  moduleToReplace={moduleToReplace}
-                  onSelect={selectModule}
-                  onTriggerReplace={handleTriggerReplace}
-                  onDelete={setModuleToDelete}
-                />
-              );
-            })}
-          </section>
-        )}
+          {/* RIGHT 1/4 COLUMN: ALL CUTS ORGANIZED BY MODULE */}
+          <div className="lg:col-span-1 min-w-0 lg:sticky lg:top-8">
+            <HomeCutsSidebar
+              cuts={cuts}
+              modules={modules}
+              isLoading={isLoading}
+              onSelectModule={selectModule}
+              onSelectCut={selectCut}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Delete Confirmation Modal */}

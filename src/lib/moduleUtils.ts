@@ -2,12 +2,16 @@ import { JLModule } from '@/types/jumpleague';
 
 /**
  * Natural numerical sort for JumpLeague Module IDs:
- * E.g. E1, E2, E3, E10 (NOT alphabetical E1, E10, E2)
+ * E.g. E1, E2, E3, E10, E11, E17 (NOT alphabetical E1, E10, E2)
  * Tier hierarchy when sorted across all categories: E -> M -> H -> U
+ * Also safely ignores leading '#' symbols (e.g. #E1 vs E1)
  */
 export function compareModuleIds(a: string, b: string): number {
-  const matchA = a.match(/^([a-zA-Z]+)(\d+)$/);
-  const matchB = b.match(/^([a-zA-Z]+)(\d+)$/);
+  const cleanA = (a || '').replace(/^#+/, '').trim();
+  const cleanB = (b || '').replace(/^#+/, '').trim();
+
+  const matchA = cleanA.match(/^([a-zA-Z]+)(\d+)$/);
+  const matchB = cleanB.match(/^([a-zA-Z]+)(\d+)$/);
 
   if (matchA && matchB) {
     const [, prefixA, numA] = matchA;
@@ -24,7 +28,7 @@ export function compareModuleIds(a: string, b: string): number {
     return parseInt(numA, 10) - parseInt(numB, 10);
   }
 
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+  return cleanA.localeCompare(cleanB, undefined, { numeric: true, sensitivity: 'base' });
 }
 
 /**

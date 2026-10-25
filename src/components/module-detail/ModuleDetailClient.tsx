@@ -79,10 +79,12 @@ function ClientModuleDetailHud() {
 
 interface ModuleDetailClientProps {
   moduleId: string;
+  initialCutId?: string;
 }
 
 export const ModuleDetailClient: React.FC<ModuleDetailClientProps> = ({
   moduleId,
+  initialCutId,
 }) => {
   const isMounted = useIsMounted();
   const rawModuleId = typeof moduleId === 'string' ? decodeURIComponent(moduleId) : '';
@@ -90,9 +92,16 @@ export const ModuleDetailClient: React.FC<ModuleDetailClientProps> = ({
   const modules = useJLStore((s) => s.modules);
   const selectedModuleId = useJLStore((s) => s.selectedModuleId);
   const selectModule = useJLStore((s) => s.selectModule);
+  const selectCut = useJLStore((s) => s.selectCut);
   const addModule = useJLStore((s) => s.addModule);
   const loadModuleBlocks = useJLStore((s) => s.loadModuleBlocks);
   const isSyncingWithSupabase = useJLStore((s) => s.isSyncingWithSupabase);
+
+  useEffect(() => {
+    if (initialCutId) {
+      selectCut(initialCutId);
+    }
+  }, [initialCutId, selectCut]);
 
   const [isLoadingModule, setIsLoadingModule] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);

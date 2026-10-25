@@ -3,6 +3,7 @@ import { ModuleDetailClient } from '@/components/module-detail/ModuleDetailClien
 
 interface PageProps {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
 export function generateStaticParams() {
@@ -11,14 +12,18 @@ export function generateStaticParams() {
 
 async function ModuleDetailContent({
   paramsPromise,
+  searchParamsPromise,
 }: {
   paramsPromise: Promise<{ id: string }>;
+  searchParamsPromise?: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const { id } = await paramsPromise;
-  return <ModuleDetailClient moduleId={id} />;
+  const sp = searchParamsPromise ? await searchParamsPromise : undefined;
+  const initialCutId = typeof sp?.cutId === 'string' ? sp.cutId : undefined;
+  return <ModuleDetailClient moduleId={id} initialCutId={initialCutId} />;
 }
 
-export default function ModuleDetailPage({ params }: PageProps) {
+export default function ModuleDetailPage({ params, searchParams }: PageProps) {
   return (
     <Suspense
       fallback={
@@ -30,7 +35,10 @@ export default function ModuleDetailPage({ params }: PageProps) {
         </div>
       }
     >
-      <ModuleDetailContent paramsPromise={params} />
+      <ModuleDetailContent
+        paramsPromise={params}
+        searchParamsPromise={searchParams}
+      />
     </Suspense>
   );
 }
