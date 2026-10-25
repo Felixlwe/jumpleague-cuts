@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 
+import { DIAMOND_BOOTS_DATA_URI } from '@/constants/diamondBootsAsset';
+
 const geistSans = Geist({
   variable: '--font-geist-sans',
   subsets: ['latin'],
@@ -18,11 +20,12 @@ export const metadata: Metadata = {
     'Interaktive 3D-WebGL-Plattform zum Erlernen, Filtern, Einreichen und Bewerten von Minecraft JumpLeague Cuts & Abkürzungen.',
   icons: {
     icon: [
-      { url: '/images/diamond-boots.png?v=5', type: 'image/png' },
-      { url: '/favicon.ico?v=5' },
+      { url: DIAMOND_BOOTS_DATA_URI },
+      { url: '/images/diamond-boots.png?v=6', type: 'image/png' },
+      { url: '/favicon.ico?v=6' },
     ],
-    shortcut: '/images/diamond-boots.png?v=5',
-    apple: '/images/diamond-boots.png?v=5',
+    shortcut: DIAMOND_BOOTS_DATA_URI,
+    apple: DIAMOND_BOOTS_DATA_URI,
   },
 };
 

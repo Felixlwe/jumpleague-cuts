@@ -32,6 +32,7 @@ import { parseSchematicFile } from '@/lib/schematicParser';
 import { AdminAuthModal } from '@/components/hud/AdminAuthModal';
 import { CreateModuleModal } from '@/components/hud/CreateModuleModal';
 import { HomeCutsSidebar } from '@/components/home/HomeCutsSidebar';
+import { DIAMOND_BOOTS_DATA_URI } from '@/constants/diamondBootsAsset';
 
 type TabCategory = 'ALL' | ModuleDifficulty;
 
@@ -621,7 +622,7 @@ export default function ModuleHubPage() {
             <div className="relative flex h-16 w-16 sm:h-20 sm:w-20 shrink-0 items-center justify-center rounded-2xl border border-cyan-400/35 bg-cyan-500/10 p-1.5 shadow-[0_0_30px_rgba(34,211,238,0.25)] backdrop-blur-md">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/images/jumpleague-logo.png"
+                src={DIAMOND_BOOTS_DATA_URI}
                 alt="JumpLeague Cuts Logo"
                 className="h-full w-full object-contain [image-rendering:pixelated] drop-shadow-[0_0_12px_rgba(34,211,238,0.7)] transition-transform duration-300 hover:scale-105"
               />
