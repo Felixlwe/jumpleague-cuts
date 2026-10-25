@@ -42,3 +42,105 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.4);
 }
+
+/* High-performance, zero-lag module card hover (GPU-composited, zero React re-renders) */
+.jl-module-card {
+  position: relative;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.22s ease,
+              background-color 0.22s ease;
+  will-change: transform, box-shadow;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.jl-module-card:hover {
+  transform: translateY(-8px) scale(1.025);
+  z-index: 30;
+  border-color: var(--card-color) !important;
+  box-shadow: 0 20px 40px -8px rgba(0, 0, 0, 0.9), 0 0 28px var(--card-glow) !important;
+  background-color: #181c28 !important;
+}
+
+.jl-module-card .jl-accent-bar {
+  transition: height 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease;
+}
+
+.jl-module-card:hover .jl-accent-bar {
+  height: 6px !important;
+  opacity: 1 !important;
+  box-shadow: 0 0 16px var(--card-color) !important;
+}
+
+.jl-module-card .jl-spotlight {
+  transition: opacity 0.25s ease;
+}
+
+.jl-module-card:hover .jl-spotlight {
+  opacity: 1 !important;
+}
+
+.jl-module-card .jl-thumb {
+  transition: transform 0.4s ease-out, opacity 0.4s ease-out;
+}
+
+.jl-module-card:hover .jl-thumb {
+  transform: scale(1.08) !important;
+  opacity: 0.95 !important;
+}
+
+.jl-module-card .jl-badge-id {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.jl-module-card:hover .jl-badge-id {
+  transform: scale(1.08);
+  box-shadow: 0 0 12px var(--card-glow);
+}
+
+.jl-module-card .jl-title {
+  transition: color 0.2s ease, text-shadow 0.2s ease;
+}
+
+.jl-module-card:hover .jl-title {
+  color: #ffffff !important;
+  text-shadow: 0 0 10px var(--card-glow);
+}
+
+.jl-module-card .jl-cut-badge {
+  transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.jl-module-card:hover .jl-cut-badge {
+  border-color: rgba(6, 182, 212, 0.6) !important;
+  background-color: rgba(6, 182, 212, 0.2) !important;
+  color: #a5f3fc !important;
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.3) !important;
+}
+
+.jl-module-card .jl-arrow {
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.jl-module-card:hover .jl-arrow {
+  transform: translate(2px, -2px) scale(1.15) !important;
+  color: #67e8f9 !important;
+}
+
+.jl-admin-add-card {
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.22s ease,
+              background-color 0.22s ease;
+  will-change: transform, box-shadow;
+  cursor: pointer;
+}
+
+.jl-admin-add-card:hover {
+  transform: translateY(-8px) scale(1.025);
+  z-index: 30;
+  border-color: #c084fc !important;
+  background-color: rgba(168, 85, 247, 0.25) !important;
+  box-shadow: 0 20px 40px -8px rgba(0, 0, 0, 0.9), 0 0 28px rgba(168, 85, 247, 0.7) !important;
+}
