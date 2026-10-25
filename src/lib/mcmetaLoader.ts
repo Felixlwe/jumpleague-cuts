@@ -16,6 +16,7 @@ export interface NeighborSolidMap {
 export interface RawMcmetaElement {
   from: [number, number, number];
   to: [number, number, number];
+  shade?: boolean;
   rotation?: {
     origin: [number, number, number];
     axis: 'x' | 'y' | 'z';
@@ -81,7 +82,7 @@ const CDNS = {
 // Global in-memory cache
 let mcmetaPromise: Promise<McmetaData> | null = null;
 let cachedMcmeta: McmetaData | null = null;
-let cachedAtlasMaterial: THREE.MeshLambertMaterial | null = null;
+let cachedAtlasMaterial: THREE.MeshBasicMaterial | null = null;
 const geometryCache = new Map<string, THREE.BufferGeometry>();
 
 async function fetchWithFallbacks<T>(urls: string[]): Promise<T> {
@@ -167,19 +168,19 @@ export function loadMcmeta(): Promise<McmetaData> {
   return mcmetaPromise;
 }
 
-let cachedTranslucentMaterial: THREE.MeshLambertMaterial | null = null;
+let cachedTranslucentMaterial: THREE.MeshBasicMaterial | null = null;
 
 /**
  * Retrieves the single shared material used for all opaque and alpha-tested cutouts (glass, leaves, ladders)
  */
-export function getAtlasMaterial(atlasTexture: THREE.Texture): THREE.MeshLambertMaterial {
+export function getAtlasMaterial(atlasTexture: THREE.Texture): THREE.MeshBasicMaterial {
   if (cachedAtlasMaterial && cachedAtlasMaterial.map === atlasTexture) {
     return cachedAtlasMaterial;
   }
-  cachedAtlasMaterial = new THREE.MeshLambertMaterial({
+  cachedAtlasMaterial = new THREE.MeshBasicMaterial({
     map: atlasTexture,
     vertexColors: true,
-    alphaTest: 0.5,
+    alphaTest: 0.1,
     transparent: false,
     side: THREE.DoubleSide,
   });
@@ -189,11 +190,11 @@ export function getAtlasMaterial(atlasTexture: THREE.Texture): THREE.MeshLambert
 /**
  * Retrieves the material for partially translucent blocks (water, ice, stained glass, slime, honey)
  */
-export function getTranslucentAtlasMaterial(atlasTexture: THREE.Texture): THREE.MeshLambertMaterial {
+export function getTranslucentAtlasMaterial(atlasTexture: THREE.Texture): THREE.MeshBasicMaterial {
   if (cachedTranslucentMaterial && cachedTranslucentMaterial.map === atlasTexture) {
     return cachedTranslucentMaterial;
   }
-  cachedTranslucentMaterial = new THREE.MeshLambertMaterial({
+  cachedTranslucentMaterial = new THREE.MeshBasicMaterial({
     map: atlasTexture,
     vertexColors: true,
     transparent: true,
@@ -202,6 +203,61 @@ export function getTranslucentAtlasMaterial(atlasTexture: THREE.Texture): THREE.
     side: THREE.DoubleSide,
   });
   return cachedTranslucentMaterial;
+}
+
+/**
+ * Resolves tint color strictly based on face.tintindex and block name (Plains biome default)
+ */
+export function resolveFaceTintColor(
+  blockName: string,
+  tintindex: number | undefined
+): string {
+  const clean = blockName.toLowerCase().replace(/^minecraft:/, '');
+
+  // Water has no model elements in mcmeta and always gets #3f76e4
+  if (clean === 'water' || clean === 'water_cauldron' || clean === 'bubble_column') {
+    return '#3f76e4';
+  }
+
+  // Untinted faces remain pure white (#ffffff) so atlas.png colors are unadulterated
+  if (tintindex === undefined || tintindex === -1) {
+    return '#ffffff';
+  }
+
+  switch (clean) {
+    case 'grass_block':
+    case 'grass':
+    case 'short_grass':
+    case 'tall_grass':
+    case 'fern':
+    case 'large_fern':
+    case 'sugar_cane':
+    case 'potted_fern':
+      return '#91bd59';
+    case 'spruce_leaves':
+      return '#619961';
+    case 'birch_leaves':
+      return '#80a755';
+    case 'mangrove_leaves':
+      return '#92c648';
+    case 'lily_pad':
+      return '#208030';
+    case 'oak_leaves':
+    case 'jungle_leaves':
+    case 'acacia_leaves':
+    case 'dark_oak_leaves':
+    case 'vine':
+      return '#77ab2f';
+    case 'melon_stem':
+    case 'pumpkin_stem':
+    case 'attached_melon_stem':
+    case 'attached_pumpkin_stem':
+      return '#e0c71c';
+    case 'redstone_wire':
+      return '#aa0000';
+    default:
+      return '#91bd59';
+  }
 }
 
 /**
@@ -1239,27 +1295,15 @@ export function getRawBlockQuads(
             uvCorners = [uvCorners[1], uvCorners[2], uvCorners[3], uvCorners[0]];
           }
 
-          let r = 1.0;
-          let g = 1.0;
-          let b = 1.0;
+          const hasTint = faceData.tintindex !== undefined && faceData.tintindex !== -1;
+          const isOverlay =
+            finalElements.length > 1 &&
+            (hasTint ||
+              String(faceData.texture).toLowerCase().includes('overlay') ||
+              texClean.toLowerCase().includes('overlay'));
 
-          const isFoliage =
-            faceData.tintindex !== undefined ||
-            name === 'vine' ||
-            name.includes('leaves') ||
-            name.includes('grass') ||
-            name.includes('fern') ||
-            name === 'lily_pad';
-
-          if (isFoliage) {
-            r = 0.486; // #7cbd6b
-            g = 0.741;
-            b = 0.419;
-          } else if (name === 'water') {
-            r = 0.247; // #3f76e4
-            g = 0.463;
-            b = 0.894;
-          }
+          const hexColor = resolveFaceTintColor(name, faceData.tintindex);
+          const baseColor = new THREE.Color(hexColor);
 
           const quadPos: [number, number, number][] = [];
           const quadNorm: [number, number, number][] = [];
@@ -1303,12 +1347,18 @@ export function getRawBlockQuads(
               nm = rotatePoint(nm, [0, 0, 0], 'y', signRot);
             }
 
-            quadPos.push([
-              (pt[0] - 8) / 16,
-              (pt[1] - 8) / 16,
-              (pt[2] - 8) / 16,
-            ]);
+            let vx = (pt[0] - 8) / 16;
+            let vy = (pt[1] - 8) / 16;
+            let vz = (pt[2] - 8) / 16;
 
+            // Offset overlay faces slightly outward by 0.002 along normal to prevent Z-fighting
+            if (isOverlay) {
+              vx += nm[0] * 0.002;
+              vy += nm[1] * 0.002;
+              vz += nm[2] * 0.002;
+            }
+
+            quadPos.push([vx, vy, vz]);
             quadNorm.push(nm);
 
             const [cu, cv] = uvCorners[c] || [0, 0];
@@ -1318,6 +1368,29 @@ export function getRawBlockQuads(
           }
 
           if (quadPos.length < 4) continue;
+
+          // Minecraft directional face-shading: up 1.0, north/south 0.8, east/west 0.6, down 0.5
+          let shadeFactor = 1.0;
+          if (el.shade !== false) {
+            const faceNormal = quadNorm[0] || faceConfig.norm;
+            const ny = faceNormal[1];
+            const nx = Math.abs(faceNormal[0]);
+            const nz = Math.abs(faceNormal[2]);
+
+            if (ny > 0.5) {
+              shadeFactor = 1.0; // up (+Y)
+            } else if (ny < -0.5) {
+              shadeFactor = 0.5; // down (-Y)
+            } else if (nz >= nx) {
+              shadeFactor = 0.8; // north (-Z) & south (+Z)
+            } else {
+              shadeFactor = 0.6; // east (+X) & west (-X)
+            }
+          }
+
+          const r = baseColor.r * shadeFactor;
+          const g = baseColor.g * shadeFactor;
+          const b = baseColor.b * shadeFactor;
 
           let cullDir = detectBoundaryCullDir(quadPos, quadNorm[0] || [0, 1, 0]);
           if (!cullDir && isSolidCube) {

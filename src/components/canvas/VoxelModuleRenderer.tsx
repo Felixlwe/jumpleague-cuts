@@ -210,30 +210,6 @@ const MinecraftSpectatorControls: React.FC = () => {
     const canvas = gl.domElement;
     if (!canvas) return;
 
-    // Inject global style rule for guaranteed cursor hiding and center crosshair during free-look without browser pointerLock banner
-    const styleEl = document.createElement('style');
-    styleEl.innerHTML = `
-      body.free-look-active, body.free-look-active * {
-        cursor: none !important;
-      }
-      body.free-look-active::after {
-        content: '';
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        width: 14px;
-        height: 14px;
-        transform: translate(-50%, -50%);
-        pointer-events: none;
-        z-index: 9999;
-        background:
-          linear-gradient(to right, transparent 6px, rgba(255, 255, 255, 0.9) 6px, rgba(255, 255, 255, 0.9) 8px, transparent 8px),
-          linear-gradient(to bottom, transparent 6px, rgba(255, 255, 255, 0.9) 6px, rgba(255, 255, 255, 0.9) 8px, transparent 8px);
-        filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.9));
-      }
-    `;
-    document.head.appendChild(styleEl);
-
     camera.rotation.order = 'YXZ';
 
     const isTyping = () => {
@@ -301,7 +277,6 @@ const MinecraftSpectatorControls: React.FC = () => {
     const handleBlur = () => {
       keysPressed.current.clear();
       isRightMouseDown.current = false;
-      document.body.classList.remove('free-look-active');
       if (
         typeof document !== 'undefined' &&
         document.pointerLockElement === canvas
@@ -314,34 +289,33 @@ const MinecraftSpectatorControls: React.FC = () => {
       e.preventDefault();
     };
 
-    const handlePointerDownEvent = (e: PointerEvent) => {
+    const handleMouseDown = (e: MouseEvent) => {
       if (e.button === 2) {
-        // Right click down: initiate free-look, lock mouse in center
+        // Right click down: initiate free-look
         transitionRef.current = null;
         isRightMouseDown.current = true;
         lastMousePos.current = { x: e.clientX, y: e.clientY };
-        document.body.classList.add('free-look-active');
 
         try {
           if (canvas.requestPointerLock) {
             canvas.requestPointerLock();
           }
         } catch {
-          // ignore
+          // Fallback via clientX/clientY delta handles rotation
         }
       }
     };
 
-    const handlePointerMoveEvent = (e: PointerEvent) => {
-      const isLocked =
-        typeof document !== 'undefined' &&
-        document.pointerLockElement === canvas;
-      if (!isRightMouseDown.current && !isLocked) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isRightMouseDown.current) return;
 
       let deltaX = 0;
       let deltaY = 0;
 
-      if (isLocked) {
+      if (
+        typeof document !== 'undefined' &&
+        document.pointerLockElement === canvas
+      ) {
         deltaX = e.movementX || 0;
         deltaY = e.movementY || 0;
       } else {
@@ -367,26 +341,15 @@ const MinecraftSpectatorControls: React.FC = () => {
       camera.rotation.z = 0;
     };
 
-    const handlePointerUpEvent = (e: PointerEvent) => {
+    const handleMouseUp = (e: MouseEvent) => {
       if (e.button === 2) {
         isRightMouseDown.current = false;
-        document.body.classList.remove('free-look-active');
         if (
           typeof document !== 'undefined' &&
           document.pointerLockElement === canvas
         ) {
           document.exitPointerLock?.();
         }
-      }
-    };
-
-    const handlePointerLockChange = () => {
-      if (
-        typeof document !== 'undefined' &&
-        document.pointerLockElement !== canvas
-      ) {
-        isRightMouseDown.current = false;
-        document.body.classList.remove('free-look-active');
       }
     };
 
@@ -403,30 +366,26 @@ const MinecraftSpectatorControls: React.FC = () => {
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', handleBlur);
     canvas.addEventListener('contextmenu', handleContextMenu);
-    canvas.addEventListener('pointerdown', handlePointerDownEvent);
-    window.addEventListener('pointermove', handlePointerMoveEvent);
-    window.addEventListener('pointerup', handlePointerUpEvent);
+    canvas.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
     canvas.addEventListener('wheel', handleWheel, { passive: false });
-    document.addEventListener('pointerlockchange', handlePointerLockChange);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
       canvas.removeEventListener('contextmenu', handleContextMenu);
-      canvas.removeEventListener('pointerdown', handlePointerDownEvent);
-      window.removeEventListener('pointermove', handlePointerMoveEvent);
-      window.removeEventListener('pointerup', handlePointerUpEvent);
+      canvas.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('wheel', handleWheel);
-      document.removeEventListener('pointerlockchange', handlePointerLockChange);
-      document.body.classList.remove('free-look-active');
       if (
         typeof document !== 'undefined' &&
         document.pointerLockElement === canvas
       ) {
         document.exitPointerLock?.();
       }
-      styleEl.remove();
     };
   }, [camera, gl.domElement]);
 
@@ -765,8 +724,6 @@ export const VoxelModuleRenderer: React.FC = () => {
         <mesh
           geometry={mergedResult.opaqueGeometry}
           material={atlasMaterial}
-          castShadow
-          receiveShadow
           onPointerMove={handlePointerMove}
           onPointerOut={handlePointerOut}
           onClick={handleClick}
@@ -779,8 +736,6 @@ export const VoxelModuleRenderer: React.FC = () => {
         <mesh
           geometry={mergedResult.translucentGeometry}
           material={translucentMaterial}
-          castShadow
-          receiveShadow
           onPointerMove={handlePointerMove}
           onPointerOut={handlePointerOut}
           onClick={handleClick}

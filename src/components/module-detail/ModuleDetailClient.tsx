@@ -11,7 +11,6 @@ import { SubmissionModal } from '@/components/hud/SubmissionModal';
 import { AdminReviewPanel } from '@/components/hud/AdminReviewPanel';
 import { AdminAuthModal } from '@/components/hud/AdminAuthModal';
 import { BottomToolbar } from '@/components/hud/BottomToolbar';
-import { ControlsGuide } from '@/components/hud/ControlsGuide';
 import { useJLStore } from '@/store/useJLStore';
 import { DIAMOND_BOOTS_DATA_URI } from '@/constants/diamondBootsAsset';
 import { fetchModuleById } from '@/lib/supabase';
@@ -48,7 +47,7 @@ function ClientModuleDetailHud() {
 
   return (
     <div className="pointer-events-none fixed inset-0 z-10 flex flex-col justify-between p-4 sm:p-5">
-      {/* Top/Middle Workspace: TopLeftBar on Left; Explore / Submit / Admin on Right */}
+      {/* Top/Middle Workspace: TopLeftBar (Diamond Boots Back-Button + Active Module Badge) on Left; Explore / Submit / Admin on Right */}
       <div className="flex flex-1 items-start justify-between gap-4 overflow-hidden">
         <TopLeftBar />
 
@@ -63,9 +62,6 @@ function ClientModuleDetailHud() {
           </div>
         )}
       </div>
-
-      {/* Middle of Left Sidebar: Vertical transparent ControlsGuide */}
-      <ControlsGuide />
 
       {/* Bottom Floating Toolbar: Camera Reset, Cut-Lines Toggle, Cut einreichen & Admin-Modus */}
       <BottomToolbar />

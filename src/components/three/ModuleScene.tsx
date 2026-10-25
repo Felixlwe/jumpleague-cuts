@@ -24,11 +24,30 @@ export const ModuleScene: React.FC = () => {
         className="pointer-events-none fixed inset-0 z-[5] overflow-hidden"
       />
 
+      {/* Control Hint Banner in normal HTML DOM outside <Canvas> */}
+      <div className="pointer-events-none fixed bottom-4 left-1/2 z-20 -translate-x-1/2 select-none">
+        <div className="flex items-center gap-2 rounded-full border border-white/10 bg-zinc-950/80 px-4 py-1.5 font-mono text-[11px] text-zinc-300 shadow-2xl backdrop-blur-md">
+          <span className="font-semibold text-cyan-400">WASD</span>
+          <span>: Bewegen</span>
+          <span className="text-zinc-600">|</span>
+          <span className="font-semibold text-cyan-400">Space/Shift</span>
+          <span>: Hoch/Runter</span>
+          <span className="text-zinc-600">|</span>
+          <span className="font-semibold text-cyan-400">Rechtsklick halten</span>
+          <span>: Umschauen</span>
+        </div>
+      </div>
+
       <Canvas
-        shadows={{ type: THREE.PCFShadowMap }}
+        flat
         dpr={[1, 2]}
         camera={{ position: [21, 14.5, 9.5], fov: 46, near: 0.1, far: 250 }}
-        gl={{ antialias: true, powerPreference: 'high-performance' }}
+        gl={{
+          antialias: true,
+          powerPreference: 'high-performance',
+          toneMapping: THREE.NoToneMapping,
+          outputColorSpace: THREE.SRGBColorSpace,
+        }}
         onContextMenu={(e) => e.preventDefault()}
       >
         {/* Lighter, atmospheric twilight sky & haze */}
