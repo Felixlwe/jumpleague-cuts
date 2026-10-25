@@ -189,6 +189,50 @@ const SkeletonModuleCard: React.FC = () => (
   </div>
 );
 
+function getDifficultyHoverClasses(diff?: string | null): {
+  hoverBorder: string;
+  hoverGlow: string;
+  hoverRing: string;
+  glowColor: string;
+} {
+  const norm = String(diff || '').toUpperCase().trim();
+  if (norm === 'HARD') {
+    return {
+      hoverBorder: 'hover:border-orange-500/80',
+      hoverGlow:
+        'hover:shadow-[0_20px_40px_rgba(0,0,0,0.85),0_0_28px_rgba(249,115,22,0.4)]',
+      hoverRing: 'hover:ring-1 hover:ring-orange-400/50',
+      glowColor: '#f97316',
+    };
+  }
+  if (norm === 'ULTRA') {
+    return {
+      hoverBorder: 'hover:border-purple-500/80',
+      hoverGlow:
+        'hover:shadow-[0_20px_40px_rgba(0,0,0,0.85),0_0_28px_rgba(168,85,247,0.4)]',
+      hoverRing: 'hover:ring-1 hover:ring-purple-400/50',
+      glowColor: '#a855f7',
+    };
+  }
+  if (norm === 'NORMAL' || norm === 'MEDIUM') {
+    return {
+      hoverBorder: 'hover:border-cyan-500/80',
+      hoverGlow:
+        'hover:shadow-[0_20px_40px_rgba(0,0,0,0.85),0_0_28px_rgba(6,182,212,0.4)]',
+      hoverRing: 'hover:ring-1 hover:ring-cyan-400/50',
+      glowColor: '#06b6d4',
+    };
+  }
+  // EASY / Default
+  return {
+    hoverBorder: 'hover:border-emerald-500/80',
+    hoverGlow:
+      'hover:shadow-[0_20px_40px_rgba(0,0,0,0.85),0_0_28px_rgba(16,185,129,0.4)]',
+    hoverRing: 'hover:ring-1 hover:ring-emerald-400/50',
+    glowColor: '#10b981',
+  };
+}
+
 export default function ModuleHubPage() {
   const isMounted = useIsMounted();
 
@@ -583,13 +627,13 @@ export default function ModuleHubPage() {
             </button>
           </div>
         ) : (
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 transition-all duration-300 [&:hover>*:not(:hover)]:opacity-60 [&:hover>*:not(:hover)]:scale-[0.985]">
             {/* ADMIN ONLY: First Card in Grid to Add a New Module */}
             {isAdminMode && (
               <button
                 type="button"
                 onClick={() => setIsCreateModalOpen(true)}
-                className="group relative flex min-h-[140px] flex-col items-center justify-center gap-2.5 rounded-xl border-2 border-dashed border-purple-500/50 bg-purple-500/10 p-4 text-center transition-all duration-200 hover:border-purple-400 hover:bg-purple-500/20 hover:shadow-[0_0_25px_rgba(168,85,247,0.3)] hover:-translate-y-0.5"
+                className="group relative flex min-h-[140px] flex-col items-center justify-center gap-2.5 rounded-xl border-2 border-dashed border-purple-500/50 bg-purple-500/10 p-4 text-center transition-all duration-300 ease-out hover:-translate-y-2 hover:scale-[1.03] hover:z-30 hover:border-purple-400 hover:bg-purple-500/20 hover:shadow-[0_20px_40px_rgba(0,0,0,0.85),0_0_28px_rgba(168,85,247,0.4)] active:scale-[0.99]"
               >
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-purple-400/50 bg-purple-500/25 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.35)] transition-transform duration-200 group-hover:scale-110">
                   <Plus className="h-5 w-5" />
@@ -606,8 +650,8 @@ export default function ModuleHubPage() {
             )}
 
             {visibleModules.map((mod) => {
-              const isSelected = false;
               const diffCfg = getModuleDifficultyConfig(mod.difficulty);
+              const hoverStyle = getDifficultyHoverClasses(mod.difficulty);
 
               // Approved cuts in this module
               const moduleCuts = cuts.filter(
@@ -628,16 +672,12 @@ export default function ModuleHubPage() {
                   key={mod.id}
                   href={`/modules/${encodeURIComponent(cleanHrefId)}`}
                   onClick={() => selectModule(mod.id)}
-                  className={`group relative flex flex-col justify-between overflow-hidden rounded-xl border p-3.5 text-left backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 min-h-[140px] ${
-                    isSelected
-                      ? 'border-emerald-400/80 bg-zinc-950/90 shadow-[0_0_20px_rgba(16,185,129,0.2)] ring-1 ring-emerald-400/50'
-                      : 'border-white/10 bg-zinc-950/75 shadow-lg hover:border-white/20 hover:bg-zinc-900/80 hover:shadow-xl'
-                  }`}
+                  className={`group relative flex flex-col justify-between overflow-hidden rounded-xl border p-3.5 text-left backdrop-blur-xl transition-all duration-300 ease-out min-h-[140px] border-white/10 bg-zinc-950/80 shadow-lg hover:-translate-y-2 hover:scale-[1.03] hover:z-30 hover:bg-zinc-900/90 active:scale-[0.99] active:-translate-y-1 ${hoverStyle.hoverBorder} ${hoverStyle.hoverGlow} ${hoverStyle.hoverRing}`}
                 >
                   {/* Background Thumbnail Image or 2D Isometric Silhouette Fallback */}
                   {mod.thumbnailUrl ? (
                     <div
-                      className="absolute inset-0 bg-cover bg-center opacity-65 transition-all duration-500 group-hover:scale-105 group-hover:opacity-90 pointer-events-none"
+                      className="absolute inset-0 bg-cover bg-center opacity-60 transition-all duration-500 ease-out group-hover:scale-110 group-hover:opacity-95 pointer-events-none"
                       style={{ backgroundImage: `url(${mod.thumbnailUrl})` }}
                     />
                   ) : (
@@ -648,14 +688,23 @@ export default function ModuleHubPage() {
                   )}
 
                   {/* Dark subtle gradient overlay ensuring text readability */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/60 to-transparent pointer-events-none" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/65 to-transparent pointer-events-none transition-colors duration-300 group-hover:via-zinc-950/50" />
+
+                  {/* Subtle Radial Ambient Spotlight on Hover */}
+                  <div
+                    className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 pointer-events-none z-0"
+                    style={{
+                      background: `radial-gradient(circle at top left, ${hoverStyle.glowColor}24, transparent 70%)`,
+                    }}
+                  />
 
                   {/* Top Accent Glow Bar */}
                   <div
-                    className="absolute inset-x-0 top-0 h-1 transition-opacity duration-300 z-10"
+                    className="absolute inset-x-0 top-0 h-1 transition-all duration-300 z-10 group-hover:h-1.5 group-hover:opacity-100"
                     style={{
                       backgroundColor: diffCfg.color,
-                      opacity: isSelected ? 1 : 0.45,
+                      opacity: 0.5,
+                      boxShadow: `0 0 14px ${diffCfg.color}`,
                     }}
                   />
 
@@ -664,7 +713,7 @@ export default function ModuleHubPage() {
                     <div className="flex items-center justify-between gap-2 min-w-0">
                       <div className="flex items-center gap-2 min-w-0 flex-1">
                         <span
-                          className="flex h-7 w-9 shrink-0 items-center justify-center rounded-lg border font-mono text-xs font-black text-white shadow-sm transition-transform duration-200 group-hover:scale-105"
+                          className="flex h-7 w-9 shrink-0 items-center justify-center rounded-lg border font-mono text-xs font-black text-white shadow-sm transition-all duration-300 group-hover:scale-110 group-hover:shadow-[0_0_12px_rgba(255,255,255,0.25)]"
                           style={{
                             borderColor: `${diffCfg.color}66`,
                             backgroundColor: `${diffCfg.color}1c`,
@@ -674,20 +723,20 @@ export default function ModuleHubPage() {
                         </span>
 
                         <span
-                          className={`shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase ${diffCfg.badgeClass}`}
+                          className={`shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase transition-transform duration-300 group-hover:scale-105 ${diffCfg.badgeClass}`}
                         >
                           {diffCfg.label}
                         </span>
 
                         <h2
-                          className="truncate text-xs font-bold tracking-tight text-white transition-colors group-hover:text-emerald-300"
+                          className="truncate text-xs font-bold tracking-tight text-zinc-100 transition-colors duration-200 group-hover:text-white"
                           title={cleanName}
                         >
                           {cleanName}
                         </h2>
                       </div>
 
-                      {/* Top Right: Admin Action Icons ONLY (Aktiv badge completely removed!) */}
+                      {/* Top Right: Admin Action Icons */}
                       {isAdminMode && (
                         <div
                           className="flex items-center gap-1 shrink-0"
@@ -732,18 +781,8 @@ export default function ModuleHubPage() {
 
                   {/* Bottom Row: Cut-Anzahl + Max-Zeitersparnis & Arrow */}
                   <div className="relative z-10 flex items-center justify-between gap-2 border-t border-white/10 pt-2.5 font-mono text-xs mt-3">
-                    <div
-                      className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-bold transition ${
-                        isSelected
-                          ? 'border-emerald-400/40 bg-emerald-500/20 text-emerald-200'
-                          : 'border-white/10 bg-zinc-900/90 text-zinc-300 group-hover:border-cyan-400/40 group-hover:text-white'
-                      }`}
-                    >
-                      <Route
-                        className={`h-3 w-3 ${
-                          isSelected ? 'text-emerald-300' : 'text-cyan-400'
-                        }`}
-                      />
+                    <div className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-zinc-900/90 px-2 py-1 text-[11px] font-bold text-zinc-300 transition-all duration-200 group-hover:border-cyan-400/50 group-hover:bg-cyan-500/15 group-hover:text-cyan-200 group-hover:shadow-[0_0_10px_rgba(6,182,212,0.25)]">
+                      <Route className="h-3 w-3 text-cyan-400 transition-transform duration-200 group-hover:scale-110" />
                       <span>
                         {cutCount} {cutCount === 1 ? 'Cut' : 'Cuts'}
                       </span>
@@ -751,12 +790,12 @@ export default function ModuleHubPage() {
 
                     <div className="flex items-center gap-2">
                       {maxTimeSaved > 0 && (
-                        <span className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-400">
+                        <span className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-400 transition-transform duration-200 group-hover:scale-105">
                           <Zap className="h-3 w-3" />
                           <span>-{maxTimeSaved.toFixed(1)}s</span>
                         </span>
                       )}
-                      <ArrowUpRight className="h-3.5 w-3.5 text-zinc-400 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-cyan-300" />
+                      <ArrowUpRight className="h-3.5 w-3.5 text-zinc-400 transition-all duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-cyan-300 group-hover:scale-110" />
                     </div>
                   </div>
                 </Link>
