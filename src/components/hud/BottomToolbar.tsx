@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useSyncExternalStore } from 'react';
 import {
   RotateCcw,
   Eye,
@@ -8,7 +8,6 @@ import {
   PlusCircle,
   ShieldCheck,
   Compass,
-  Camera,
 } from 'lucide-react';
 import { useJLStore } from '@/store/useJLStore';
 import {
@@ -16,40 +15,27 @@ import {
   CUT_DIFFICULTY_CONFIG,
 } from '@/constants/jumpleagueConfig';
 
+const emptySubscribe = () => () => {};
+
+function useIsMounted(): boolean {
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+}
+
 export const BottomToolbar: React.FC = () => {
+  const isMounted = useIsMounted();
   const showCutLines = useJLStore((s) => s.showCutLines);
   const selectedCutId = useJLStore((s) => s.selectedCutId);
-  const selectedModuleId = useJLStore((s) => s.selectedModuleId);
   const activeMode = useJLStore((s) => s.activeMode);
   const cuts = useJLStore((s) => s.cuts);
   const isAdminAuthenticated = useJLStore((s) => s.isAdminAuthenticated);
-  const isAdminMode = useJLStore((s) => s.isAdminMode);
-  const updateModuleThumbnail = useJLStore((s) => s.updateModuleThumbnail);
 
   const toggleCutLines = useJLStore((s) => s.toggleCutLines);
   const resetCamera = useJLStore((s) => s.resetCamera);
   const setActiveMode = useJLStore((s) => s.setActiveMode);
-
-  const [isCapturing, setIsCapturing] = useState(false);
-  const [capturedSuccess, setCapturedSuccess] = useState(false);
-
-  const handleCaptureThumbnail = async () => {
-    if (!selectedModuleId) return;
-    setIsCapturing(true);
-    try {
-      const canvas = document.querySelector('canvas');
-      if (canvas) {
-        const dataUrl = canvas.toDataURL('image/webp', 0.65);
-        await updateModuleThumbnail(selectedModuleId, dataUrl);
-        setCapturedSuccess(true);
-        setTimeout(() => setCapturedSuccess(false), 3000);
-      }
-    } catch (err) {
-      console.warn('Screenshot capture failed:', err);
-    } finally {
-      setIsCapturing(false);
-    }
-  };
 
   const pendingCount = useMemo(
     () => cuts.filter((c) => c.status === 'PENDING').length,
@@ -79,7 +65,7 @@ export const BottomToolbar: React.FC = () => {
         onClick={toggleCutLines}
         className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition active:scale-95 ${
           showCutLines
-            ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
+            ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 shadow-[0_0_15px_rgba(160,185,129,0.25)]'
             : 'border-white/10 bg-zinc-900/80 text-zinc-400 hover:text-zinc-200'
         }`}
       >
@@ -127,48 +113,26 @@ export const BottomToolbar: React.FC = () => {
           <span>Cut einreichen</span>
         </button>
 
-        {/* 'Admin-Modus' Toggle with Red Pending Count Badge */}
-        <button
-          type="button"
-          onClick={() =>
-            setActiveMode(activeMode === 'ADMIN' ? 'EXPLORE' : 'ADMIN')
-          }
-          className={`relative flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold transition active:scale-95 ${
-            activeMode === 'ADMIN'
-              ? 'border-purple-400 bg-purple-500 text-white shadow-[0_0_18px_rgba(168,85,247,0.55)]'
-              : 'border-white/10 bg-zinc-900/80 text-zinc-300 hover:border-purple-400/40 hover:text-white'
-          }`}
-        >
-          <ShieldCheck className="h-3.5 w-3.5 text-purple-400" />
-          <span>Admin-Modus</span>
-          {pendingCount > 0 && (
-            <span className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 font-mono text-[10px] font-extrabold text-white shadow-[0_0_8px_rgba(244,63,94,0.8)]">
-              {pendingCount}
-            </span>
-          )}
-        </button>
-
-        {/* Admin Action: 📸 Aktuelle Ansicht als Vorschaubild speichern */}
-        {(isAdminAuthenticated || isAdminMode || activeMode === 'ADMIN') && (
+        {/* 'Admin-Modus' Toggle with Red Pending Count Badge - strictly only shown when logged in as admin */}
+        {isMounted && isAdminAuthenticated && (
           <button
             type="button"
-            onClick={handleCaptureThumbnail}
-            disabled={isCapturing}
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition active:scale-95 shadow-sm ${
-              capturedSuccess
-                ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300'
-                : 'border-cyan-500/40 bg-cyan-500/15 text-cyan-300 hover:border-cyan-400 hover:bg-cyan-500/25 hover:text-white'
+            onClick={() =>
+              setActiveMode(activeMode === 'ADMIN' ? 'EXPLORE' : 'ADMIN')
+            }
+            className={`relative flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold transition active:scale-95 ${
+              activeMode === 'ADMIN'
+                ? 'border-purple-400 bg-purple-500 text-white shadow-[0_0_18px_rgba(168,85,247,0.55)]'
+                : 'border-white/10 bg-zinc-900/80 text-zinc-300 hover:border-purple-400/40 hover:text-white'
             }`}
-            title="Aktuelle 3D-Kameraansicht als Vorschaubild für dieses Modul speichern"
           >
-            <Camera className="h-3.5 w-3.5 text-cyan-400" />
-            <span>
-              {capturedSuccess
-                ? '✓ Gespeichert!'
-                : isCapturing
-                  ? 'Speichere...'
-                  : '📸 Ansicht als Vorschaubild speichern'}
-            </span>
+            <ShieldCheck className="h-3.5 w-3.5 text-purple-400" />
+            <span>Admin-Modus</span>
+            {pendingCount > 0 && (
+              <span className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 font-mono text-[10px] font-extrabold text-white shadow-[0_0_8px_rgba(244,63,94,0.8)]">
+                {pendingCount}
+              </span>
+            )}
           </button>
         )}
       </div>
