@@ -189,50 +189,6 @@ const SkeletonModuleCard: React.FC = () => (
   </div>
 );
 
-function getDifficultyHoverClasses(diff?: string | null): {
-  hoverBorder: string;
-  hoverGlow: string;
-  hoverRing: string;
-  glowColor: string;
-} {
-  const norm = String(diff || '').toUpperCase().trim();
-  if (norm === 'HARD') {
-    return {
-      hoverBorder: 'hover:border-orange-500/80',
-      hoverGlow:
-        'hover:shadow-[0_20px_40px_rgba(0,0,0,0.85),0_0_28px_rgba(249,115,22,0.4)]',
-      hoverRing: 'hover:ring-1 hover:ring-orange-400/50',
-      glowColor: '#f97316',
-    };
-  }
-  if (norm === 'ULTRA') {
-    return {
-      hoverBorder: 'hover:border-purple-500/80',
-      hoverGlow:
-        'hover:shadow-[0_20px_40px_rgba(0,0,0,0.85),0_0_28px_rgba(168,85,247,0.4)]',
-      hoverRing: 'hover:ring-1 hover:ring-purple-400/50',
-      glowColor: '#a855f7',
-    };
-  }
-  if (norm === 'NORMAL' || norm === 'MEDIUM') {
-    return {
-      hoverBorder: 'hover:border-cyan-500/80',
-      hoverGlow:
-        'hover:shadow-[0_20px_40px_rgba(0,0,0,0.85),0_0_28px_rgba(6,182,212,0.4)]',
-      hoverRing: 'hover:ring-1 hover:ring-cyan-400/50',
-      glowColor: '#06b6d4',
-    };
-  }
-  // EASY / Default
-  return {
-    hoverBorder: 'hover:border-emerald-500/80',
-    hoverGlow:
-      'hover:shadow-[0_20px_40px_rgba(0,0,0,0.85),0_0_28px_rgba(16,185,129,0.4)]',
-    hoverRing: 'hover:ring-1 hover:ring-emerald-400/50',
-    glowColor: '#10b981',
-  };
-}
-
 export default function ModuleHubPage() {
   const isMounted = useIsMounted();
 
@@ -255,6 +211,7 @@ export default function ModuleHubPage() {
   const replaceModuleSchematic = useJLStore((s) => s.replaceModuleSchematic);
 
   // Local Page State
+  const [hoveredModuleId, setHoveredModuleId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [moduleToDelete, setModuleToDelete] = useState<JLModule | null>(null);
@@ -627,13 +584,48 @@ export default function ModuleHubPage() {
             </button>
           </div>
         ) : (
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 transition-all duration-300 [&:hover>*:not(:hover)]:opacity-60 [&:hover>*:not(:hover)]:scale-[0.985]">
+          <section
+            onMouseLeave={() => setHoveredModuleId(null)}
+            className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 py-2"
+          >
             {/* ADMIN ONLY: First Card in Grid to Add a New Module */}
             {isAdminMode && (
               <button
                 type="button"
                 onClick={() => setIsCreateModalOpen(true)}
-                className="group relative flex min-h-[140px] flex-col items-center justify-center gap-2.5 rounded-xl border-2 border-dashed border-purple-500/50 bg-purple-500/10 p-4 text-center transition-all duration-300 ease-out hover:-translate-y-2 hover:scale-[1.03] hover:z-30 hover:border-purple-400 hover:bg-purple-500/20 hover:shadow-[0_20px_40px_rgba(0,0,0,0.85),0_0_28px_rgba(168,85,247,0.4)] active:scale-[0.99]"
+                onMouseEnter={() => setHoveredModuleId('__ADD_MODULE__')}
+                onMouseLeave={() => setHoveredModuleId(null)}
+                onPointerEnter={() => setHoveredModuleId('__ADD_MODULE__')}
+                onPointerLeave={() => setHoveredModuleId(null)}
+                className="group relative flex min-h-[140px] flex-col items-center justify-center gap-2.5 rounded-xl border-2 border-dashed border-purple-500/50 bg-purple-500/10 p-4 text-center cursor-pointer select-none"
+                style={{
+                  transform:
+                    hoveredModuleId === '__ADD_MODULE__'
+                      ? 'translateY(-10px) scale(1.035)'
+                      : hoveredModuleId !== null
+                        ? 'scale(0.975)'
+                        : 'translateY(0) scale(1)',
+                  borderColor:
+                    hoveredModuleId === '__ADD_MODULE__'
+                      ? '#c084fc'
+                      : 'rgba(168, 85, 247, 0.5)',
+                  backgroundColor:
+                    hoveredModuleId === '__ADD_MODULE__'
+                      ? 'rgba(168, 85, 247, 0.25)'
+                      : 'rgba(168, 85, 247, 0.1)',
+                  boxShadow:
+                    hoveredModuleId === '__ADD_MODULE__'
+                      ? '0 24px 48px -8px rgba(0, 0, 0, 0.95), 0 0 32px rgba(168, 85, 247, 0.7)'
+                      : 'none',
+                  zIndex: hoveredModuleId === '__ADD_MODULE__' ? 40 : 1,
+                  opacity:
+                    hoveredModuleId !== null &&
+                    hoveredModuleId !== '__ADD_MODULE__'
+                      ? 0.45
+                      : 1,
+                  transition:
+                    'transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.22s ease, opacity 0.22s ease, background-color 0.22s ease',
+                }}
               >
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-purple-400/50 bg-purple-500/25 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.35)] transition-transform duration-200 group-hover:scale-110">
                   <Plus className="h-5 w-5" />
@@ -651,7 +643,9 @@ export default function ModuleHubPage() {
 
             {visibleModules.map((mod) => {
               const diffCfg = getModuleDifficultyConfig(mod.difficulty);
-              const hoverStyle = getDifficultyHoverClasses(mod.difficulty);
+              const isHovered = hoveredModuleId === mod.id;
+              const isOtherHovered =
+                hoveredModuleId !== null && !isHovered;
 
               // Approved cuts in this module
               const moduleCuts = cuts.filter(
@@ -672,13 +666,41 @@ export default function ModuleHubPage() {
                   key={mod.id}
                   href={`/modules/${encodeURIComponent(cleanHrefId)}`}
                   onClick={() => selectModule(mod.id)}
-                  className={`group relative flex flex-col justify-between overflow-hidden rounded-xl border p-3.5 text-left backdrop-blur-xl transition-all duration-300 ease-out min-h-[140px] border-white/10 bg-zinc-950/80 shadow-lg hover:-translate-y-2 hover:scale-[1.03] hover:z-30 hover:bg-zinc-900/90 active:scale-[0.99] active:-translate-y-1 ${hoverStyle.hoverBorder} ${hoverStyle.hoverGlow} ${hoverStyle.hoverRing}`}
+                  onMouseEnter={() => setHoveredModuleId(mod.id)}
+                  onMouseLeave={() => setHoveredModuleId(null)}
+                  onPointerEnter={() => setHoveredModuleId(mod.id)}
+                  onPointerLeave={() => setHoveredModuleId(null)}
+                  className="group relative flex flex-col justify-between overflow-hidden rounded-xl border p-3.5 text-left backdrop-blur-xl min-h-[140px] cursor-pointer select-none"
+                  style={{
+                    transform: isHovered
+                      ? 'translateY(-10px) scale(1.035)'
+                      : isOtherHovered
+                        ? 'scale(0.975)'
+                        : 'translateY(0) scale(1)',
+                    borderColor: isHovered
+                      ? diffCfg.color
+                      : 'rgba(255, 255, 255, 0.1)',
+                    boxShadow: isHovered
+                      ? `0 24px 48px -8px rgba(0, 0, 0, 0.95), 0 0 32px ${diffCfg.color}99, inset 0 0 16px ${diffCfg.color}20`
+                      : '0 8px 24px -6px rgba(0, 0, 0, 0.5)',
+                    zIndex: isHovered ? 40 : 1,
+                    opacity: isOtherHovered ? 0.45 : 1,
+                    backgroundColor: isHovered
+                      ? '#181c28'
+                      : 'rgba(12, 14, 23, 0.82)',
+                    transition:
+                      'transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.22s ease, opacity 0.22s ease, background-color 0.22s ease',
+                  }}
                 >
                   {/* Background Thumbnail Image or 2D Isometric Silhouette Fallback */}
                   {mod.thumbnailUrl ? (
                     <div
-                      className="absolute inset-0 bg-cover bg-center opacity-60 transition-all duration-500 ease-out group-hover:scale-110 group-hover:opacity-95 pointer-events-none"
-                      style={{ backgroundImage: `url(${mod.thumbnailUrl})` }}
+                      className="absolute inset-0 bg-cover bg-center pointer-events-none transition-all duration-500 ease-out"
+                      style={{
+                        backgroundImage: `url(${mod.thumbnailUrl})`,
+                        transform: isHovered ? 'scale(1.12)' : 'scale(1)',
+                        opacity: isHovered ? 0.95 : 0.6,
+                      }}
                     />
                   ) : (
                     <ModuleThumbnailFallback
@@ -688,23 +710,32 @@ export default function ModuleHubPage() {
                   )}
 
                   {/* Dark subtle gradient overlay ensuring text readability */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/65 to-transparent pointer-events-none transition-colors duration-300 group-hover:via-zinc-950/50" />
+                  <div
+                    className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/65 to-transparent pointer-events-none transition-colors duration-300"
+                    style={{
+                      opacity: isHovered ? 0.85 : 0.95,
+                    }}
+                  />
 
                   {/* Subtle Radial Ambient Spotlight on Hover */}
                   <div
-                    className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 pointer-events-none z-0"
+                    className="absolute inset-0 pointer-events-none transition-opacity duration-300 z-0"
                     style={{
-                      background: `radial-gradient(circle at top left, ${hoverStyle.glowColor}24, transparent 70%)`,
+                      opacity: isHovered ? 1 : 0,
+                      background: `radial-gradient(circle at top left, ${diffCfg.color}33, transparent 75%)`,
                     }}
                   />
 
                   {/* Top Accent Glow Bar */}
                   <div
-                    className="absolute inset-x-0 top-0 h-1 transition-all duration-300 z-10 group-hover:h-1.5 group-hover:opacity-100"
+                    className="absolute inset-x-0 top-0 transition-all duration-300 z-10"
                     style={{
+                      height: isHovered ? '6px' : '4px',
                       backgroundColor: diffCfg.color,
-                      opacity: 0.5,
-                      boxShadow: `0 0 14px ${diffCfg.color}`,
+                      opacity: isHovered ? 1 : 0.5,
+                      boxShadow: isHovered
+                        ? `0 0 18px ${diffCfg.color}`
+                        : 'none',
                     }}
                   />
 
@@ -713,23 +744,40 @@ export default function ModuleHubPage() {
                     <div className="flex items-center justify-between gap-2 min-w-0">
                       <div className="flex items-center gap-2 min-w-0 flex-1">
                         <span
-                          className="flex h-7 w-9 shrink-0 items-center justify-center rounded-lg border font-mono text-xs font-black text-white shadow-sm transition-all duration-300 group-hover:scale-110 group-hover:shadow-[0_0_12px_rgba(255,255,255,0.25)]"
+                          className="flex h-7 w-9 shrink-0 items-center justify-center rounded-lg border font-mono text-xs font-black text-white shadow-sm transition-all duration-300"
                           style={{
-                            borderColor: `${diffCfg.color}66`,
-                            backgroundColor: `${diffCfg.color}1c`,
+                            borderColor: isHovered
+                              ? `${diffCfg.color}cc`
+                              : `${diffCfg.color}66`,
+                            backgroundColor: isHovered
+                              ? `${diffCfg.color}40`
+                              : `${diffCfg.color}1c`,
+                            transform: isHovered ? 'scale(1.12)' : 'scale(1)',
+                            boxShadow: isHovered
+                              ? `0 0 14px ${diffCfg.color}80`
+                              : 'none',
                           }}
                         >
                           {mod.id}
                         </span>
 
                         <span
-                          className={`shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase transition-transform duration-300 group-hover:scale-105 ${diffCfg.badgeClass}`}
+                          className={`shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase transition-transform duration-300 ${diffCfg.badgeClass}`}
+                          style={{
+                            transform: isHovered ? 'scale(1.06)' : 'scale(1)',
+                          }}
                         >
                           {diffCfg.label}
                         </span>
 
                         <h2
-                          className="truncate text-xs font-bold tracking-tight text-zinc-100 transition-colors duration-200 group-hover:text-white"
+                          className="truncate text-xs font-bold tracking-tight transition-colors duration-200"
+                          style={{
+                            color: isHovered ? '#ffffff' : '#e4e4e7',
+                            textShadow: isHovered
+                              ? `0 0 10px ${diffCfg.color}80`
+                              : 'none',
+                          }}
                           title={cleanName}
                         >
                           {cleanName}
@@ -753,7 +801,7 @@ export default function ModuleHubPage() {
                             title="Schematic (.schem / .litematic) ersetzen"
                             onClick={(e) => handleTriggerReplace(e, mod.id)}
                             disabled={isReplacing && moduleToReplace === mod.id}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/30 hover:border-cyan-400 hover:text-white transition shadow-sm active:scale-95 disabled:opacity-50"
+                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/30 hover:border-cyan-400 hover:text-white transition shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
                           >
                             {isReplacing && moduleToReplace === mod.id ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />
@@ -770,7 +818,7 @@ export default function ModuleHubPage() {
                               e.stopPropagation();
                               setModuleToDelete(mod);
                             }}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 hover:bg-rose-500/30 hover:border-rose-400 hover:text-white transition shadow-sm active:scale-95"
+                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 hover:bg-rose-500/30 hover:border-rose-400 hover:text-white transition shadow-sm active:scale-95 cursor-pointer"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -781,8 +829,22 @@ export default function ModuleHubPage() {
 
                   {/* Bottom Row: Cut-Anzahl + Max-Zeitersparnis & Arrow */}
                   <div className="relative z-10 flex items-center justify-between gap-2 border-t border-white/10 pt-2.5 font-mono text-xs mt-3">
-                    <div className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-zinc-900/90 px-2 py-1 text-[11px] font-bold text-zinc-300 transition-all duration-200 group-hover:border-cyan-400/50 group-hover:bg-cyan-500/15 group-hover:text-cyan-200 group-hover:shadow-[0_0_10px_rgba(6,182,212,0.25)]">
-                      <Route className="h-3 w-3 text-cyan-400 transition-transform duration-200 group-hover:scale-110" />
+                    <div
+                      className="flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-bold transition-all duration-200"
+                      style={{
+                        borderColor: isHovered
+                          ? 'rgba(6, 182, 212, 0.7)'
+                          : 'rgba(255, 255, 255, 0.1)',
+                        backgroundColor: isHovered
+                          ? 'rgba(6, 182, 212, 0.2)'
+                          : 'rgba(24, 24, 27, 0.9)',
+                        color: isHovered ? '#a5f3fc' : '#d4d4d8',
+                        boxShadow: isHovered
+                          ? '0 0 12px rgba(6, 182, 212, 0.35)'
+                          : 'none',
+                      }}
+                    >
+                      <Route className="h-3 w-3 text-cyan-400" />
                       <span>
                         {cutCount} {cutCount === 1 ? 'Cut' : 'Cuts'}
                       </span>
@@ -790,12 +852,25 @@ export default function ModuleHubPage() {
 
                     <div className="flex items-center gap-2">
                       {maxTimeSaved > 0 && (
-                        <span className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-400 transition-transform duration-200 group-hover:scale-105">
+                        <span
+                          className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-400 transition-transform duration-200"
+                          style={{
+                            transform: isHovered ? 'scale(1.08)' : 'scale(1)',
+                          }}
+                        >
                           <Zap className="h-3 w-3" />
                           <span>-{maxTimeSaved.toFixed(1)}s</span>
                         </span>
                       )}
-                      <ArrowUpRight className="h-3.5 w-3.5 text-zinc-400 transition-all duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-cyan-300 group-hover:scale-110" />
+                      <ArrowUpRight
+                        className="h-3.5 w-3.5 transition-all duration-200"
+                        style={{
+                          transform: isHovered
+                            ? 'translate(2px, -2px) scale(1.15)'
+                            : 'none',
+                          color: isHovered ? '#67e8f9' : '#a1a1aa',
+                        }}
+                      />
                     </div>
                   </div>
                 </Link>
