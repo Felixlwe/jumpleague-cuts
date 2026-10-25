@@ -233,6 +233,11 @@ const ModuleCard = React.memo(function ModuleCard({
       onMouseLeave={() => setIsHovered(false)}
       onPointerEnter={() => setIsHovered(true)}
       onPointerLeave={() => setIsHovered(false)}
+      onPointerMove={() => {
+        if (!isHovered) setIsHovered(true);
+      }}
+      onFocus={() => setIsHovered(true)}
+      onBlur={() => setIsHovered(false)}
       className={`jl-module-card group relative flex flex-col justify-between overflow-hidden rounded-xl border border-white/10 bg-zinc-950/85 p-3.5 text-left shadow-lg min-h-[140px] select-none ${
         isHovered ? 'is-hovered' : ''
       }`}
