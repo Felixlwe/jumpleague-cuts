@@ -152,16 +152,14 @@ const MinecraftSpectatorControls: React.FC = () => {
 
   // Active module lookup
   const currentModule = useMemo(() => {
-    if (!selectedModuleId) return modules[0] ?? null;
+    if (!selectedModuleId) return null;
     const cleanTarget = selectedModuleId.trim().toLowerCase().replace(/^#+/, '');
     return (
       modules.find((m) => {
         const mId = m.id.toLowerCase().replace(/^#+/, '');
         const mShort = (m.shortCode || '').toLowerCase().replace(/^#+/, '');
         return mId === cleanTarget || mShort === cleanTarget;
-      }) ??
-      modules[0] ??
-      null
+      }) ?? null
     );
   }, [modules, selectedModuleId]);
 
@@ -629,7 +627,7 @@ export const VoxelModuleRenderer: React.FC = () => {
   const hasCapturedRef = useRef<Record<string, boolean>>({});
 
   const currentModule = useMemo(() => {
-    if (!selectedModuleId) return modules[0] ?? null;
+    if (!selectedModuleId) return null;
     const target = selectedModuleId.trim().toLowerCase();
     const cleanTarget = target.replace(/^#+/, '');
     return (
@@ -643,9 +641,7 @@ export const VoxelModuleRenderer: React.FC = () => {
           mShort === cleanTarget ||
           mId === `#${cleanTarget}`
         );
-      }) ??
-      modules[0] ??
-      null
+      }) ?? null
     );
   }, [modules, selectedModuleId]);
 
@@ -830,8 +826,11 @@ export const VoxelModuleRenderer: React.FC = () => {
     return VOXEL_BLOCK_LABELS[b.type] || b.type;
   }, [hoveredBlock, blockMap]);
 
+  if (!currentModule) {
+    return null;
+  }
+
   if (
-    !currentModule ||
     !Array.isArray(currentModule.blocks) ||
     currentModule.blocks.length === 0
   ) {
@@ -841,7 +840,7 @@ export const VoxelModuleRenderer: React.FC = () => {
         <WorldHtml position={[0, 4, 10]} center>
           <div className="flex items-center gap-2.5 rounded-xl border border-emerald-500/40 bg-zinc-950/90 px-4 py-2 font-mono text-xs text-emerald-400 shadow-2xl backdrop-blur-md">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent" />
-            <span>Lade 3D-Blöcke für {currentModule?.name || 'Modul'}...</span>
+            <span>Lade 3D-Blöcke für {currentModule.name || 'Modul'}...</span>
           </div>
         </WorldHtml>
       </group>

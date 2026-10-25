@@ -224,6 +224,11 @@ export default function ModuleHubPage() {
 
   const replaceFileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // On the homepage, no module should be active or loaded
+  useEffect(() => {
+    selectModule('');
+  }, [selectModule]);
+
   const activeTab: TabCategory =
     filters.moduleDifficulty &&
     (filters.moduleDifficulty === 'ALL' ||
@@ -601,7 +606,7 @@ export default function ModuleHubPage() {
             )}
 
             {visibleModules.map((mod) => {
-              const isSelected = mod.id === selectedModuleId;
+              const isSelected = false;
               const diffCfg = getModuleDifficultyConfig(mod.difficulty);
 
               // Approved cuts in this module

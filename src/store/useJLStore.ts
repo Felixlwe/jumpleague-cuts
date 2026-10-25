@@ -301,6 +301,20 @@ export const useJLStore = create<JLStoreState>()(
       draftCameraTarget: null,
 
       selectModule: (moduleId) => {
+        if (!moduleId || !moduleId.trim()) {
+          set({
+            selectedModuleId: '',
+            selectedCutId: null,
+            hoveredCutId: null,
+            draftStartBlock: null,
+            draftMidPoints: [],
+            activeDraftMidPointIndex: null,
+            draftEndBlock: null,
+            pickStage: 'START',
+          });
+          return;
+        }
+
         const state = get();
         const normalizedTarget = moduleId.trim().toLowerCase();
         const cleanTarget = normalizedTarget.replace(/^#+/, '');
@@ -463,7 +477,7 @@ export const useJLStore = create<JLStoreState>()(
         );
         const nextSelected =
           state.selectedModuleId === moduleId
-            ? nextModules[0]?.id || ''
+            ? ''
             : state.selectedModuleId;
 
         set({
@@ -741,10 +755,11 @@ export const useJLStore = create<JLStoreState>()(
 
             const nextModules = Array.from(moduleMap.values());
             const nextSelected =
-              deletedSet.has(state.selectedModuleId) ||
-              !moduleMap.has(state.selectedModuleId)
-                ? nextModules[0]?.id || ''
-                : state.selectedModuleId;
+              state.selectedModuleId &&
+              moduleMap.has(state.selectedModuleId) &&
+              !deletedSet.has(state.selectedModuleId)
+                ? state.selectedModuleId
+                : '';
 
             return {
               modules: nextModules,
@@ -763,9 +778,11 @@ export const useJLStore = create<JLStoreState>()(
           set((state) => {
             const filtered = state.modules.filter((m) => !localDeleted.has(m.id));
             const nextSelected =
-              localDeleted.has(state.selectedModuleId)
-                ? filtered[0]?.id || ''
-                : state.selectedModuleId;
+              state.selectedModuleId &&
+              !localDeleted.has(state.selectedModuleId) &&
+              filtered.some((m) => m.id === state.selectedModuleId)
+                ? state.selectedModuleId
+                : '';
             return {
               modules: filtered,
               deletedModuleIds: Array.from(localDeleted),
@@ -1083,7 +1100,6 @@ export const useJLStore = create<JLStoreState>()(
       name: 'jumpleague-cuts-jlstore-v2',
       partialize: (state) => ({
         cuts: state.cuts,
-        selectedModuleId: state.selectedModuleId,
         showCutLines: state.showCutLines,
       }),
     }

@@ -389,7 +389,7 @@ export const CutTrajectories: React.FC = () => {
   const draftEndBlock = useJLStore((s) => s.draftEndBlock);
 
   const currentModule = useMemo(() => {
-    if (!selectedModuleId) return modules[0] ?? null;
+    if (!selectedModuleId) return null;
     const target = selectedModuleId.trim().toLowerCase();
     const cleanTarget = target.replace(/^#+/, '');
     return (
@@ -403,15 +403,14 @@ export const CutTrajectories: React.FC = () => {
           mShort === cleanTarget ||
           mId === `#${cleanTarget}`
         );
-      }) ??
-      modules[0] ??
-      null
+      }) ?? null
     );
   }, [modules, selectedModuleId]);
 
   // Filter APPROVED cuts of the active module matching current FilterState
   const visibleCuts = useMemo(() => {
-    const selClean = (selectedModuleId || '').trim().toLowerCase().replace(/^#+/, '');
+    if (!selectedModuleId) return [];
+    const selClean = selectedModuleId.trim().toLowerCase().replace(/^#+/, '');
     return cuts.filter((cut) => {
       const cutModClean = (cut.moduleId || '').trim().toLowerCase().replace(/^#+/, '');
       if (cut.moduleId !== selectedModuleId && cutModClean !== selClean) return false;

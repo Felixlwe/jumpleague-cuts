@@ -15,7 +15,7 @@ export const TopLeftBar: React.FC = () => {
   const selectedModuleId = useJLStore((s) => s.selectedModuleId);
 
   const activeModule = useMemo(() => {
-    if (!selectedModuleId) return modules[0] ?? null;
+    if (!selectedModuleId) return null;
     const target = selectedModuleId.trim().toLowerCase();
     const cleanTarget = target.replace(/^#+/, '');
     return (
@@ -29,9 +29,7 @@ export const TopLeftBar: React.FC = () => {
           mShort === cleanTarget ||
           mId === `#${cleanTarget}`
         );
-      }) ??
-      modules[0] ??
-      null
+      }) ?? null
     );
   }, [modules, selectedModuleId]);
 
