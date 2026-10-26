@@ -19,6 +19,7 @@ export interface NeighborSolidMap {
   westBlock?: string;
   upBlock?: string;
   downBlock?: string;
+  isWaterlogged?: boolean;
 }
 
 export interface RawMcmetaElement {
@@ -898,7 +899,7 @@ export function isTranslucentBlock(blockTypeString: string): boolean {
  */
 export function isSolidForConnection(blockType: string | undefined): boolean {
   if (!blockType) return false;
-  const clean = blockType.toLowerCase().replace(/^minecraft:/, '');
+  const clean = blockType.toLowerCase().replace(/^minecraft:/, '').split('[')[0].trim();
   if (
     clean === 'air' ||
     clean === 'cave_air' ||
@@ -906,6 +907,11 @@ export function isSolidForConnection(blockType: string | undefined): boolean {
     clean === 'structure_void' ||
     clean === 'barrier' ||
     clean === 'light' ||
+    clean === 'water' ||
+    clean.startsWith('water_') ||
+    clean === 'bubble_column' ||
+    clean === 'lava' ||
+    clean.startsWith('lava_') ||
     clean.includes('carpet') ||
     clean.includes('pressure_plate') ||
     clean.includes('ladder') ||
@@ -915,6 +921,77 @@ export function isSolidForConnection(blockType: string | undefined): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * Returns true if a block is water or contains water (waterlogged or inherently underwater plant)
+ */
+export function isWaterOrWaterlogged(blockTypeString: string | undefined): boolean {
+  if (!blockTypeString) return false;
+  const { name, props } = parseBlockIdentifier(blockTypeString);
+  const clean = name.toLowerCase().replace(/^minecraft:/, '');
+  if (clean === 'water' || clean.startsWith('water_') || clean === 'bubble_column') return true;
+  if (props.waterlogged === 'true') return true;
+  if (
+    clean === 'seagrass' ||
+    clean === 'tall_seagrass' ||
+    clean === 'kelp' ||
+    clean === 'kelp_plant'
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Checks whether a block should render water inside its voxel.
+ * Explicitly excludes pure water (which has its own element definitions) and full opaque cubes.
+ */
+export function isWaterloggedBlock(
+  blockTypeString: string,
+  neighborSolidMap?: NeighborSolidMap
+): boolean {
+  if (!blockTypeString) return false;
+  if (neighborSolidMap?.isWaterlogged !== undefined) {
+    return neighborSolidMap.isWaterlogged;
+  }
+  const { name, props } = parseBlockIdentifier(blockTypeString);
+  const clean = name.toLowerCase().replace(/^minecraft:/, '');
+  if (clean === 'water' || clean.startsWith('water_') || clean === 'bubble_column') return false;
+
+  if (props.waterlogged === 'true') return true;
+  if (props.waterlogged === 'false') return false;
+
+  if (
+    clean === 'seagrass' ||
+    clean === 'tall_seagrass' ||
+    clean === 'kelp' ||
+    clean === 'kelp_plant'
+  ) {
+    return true;
+  }
+
+  // Fallback for submerged blocks without explicit waterlogged property
+  if (neighborSolidMap && !isFullOpaqueCube(blockTypeString)) {
+    const upIsWater = isWaterOrWaterlogged(neighborSolidMap.upBlock);
+    const downIsWater = isWaterOrWaterlogged(neighborSolidMap.downBlock);
+    const northIsWater = isWaterOrWaterlogged(neighborSolidMap.northBlock);
+    const southIsWater = isWaterOrWaterlogged(neighborSolidMap.southBlock);
+    const eastIsWater = isWaterOrWaterlogged(neighborSolidMap.eastBlock);
+    const westIsWater = isWaterOrWaterlogged(neighborSolidMap.westBlock);
+
+    const horizontalWaterCount =
+      (northIsWater ? 1 : 0) +
+      (southIsWater ? 1 : 0) +
+      (eastIsWater ? 1 : 0) +
+      (westIsWater ? 1 : 0);
+
+    if (upIsWater || (horizontalWaterCount >= 2 && (downIsWater || neighborSolidMap.down))) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -1090,9 +1167,13 @@ export function getRawBlockQuads(
       name.includes('pane') ||
       name.includes('stairs');
 
-    const cacheKey = isMultipartOrAutoHeal
-      ? `${name}|${JSON.stringify(props)}|${neighborSolidMap.north},${neighborSolidMap.south},${neighborSolidMap.east},${neighborSolidMap.west},${neighborSolidMap.up}|${neighborSolidMap.northBlock},${neighborSolidMap.southBlock},${neighborSolidMap.eastBlock},${neighborSolidMap.westBlock}`
-      : `${name}|${JSON.stringify(props)}`;
+    const isWaterlogged = isWaterloggedBlock(blockTypeString, neighborSolidMap);
+    const upIsWater = isWaterOrWaterlogged(neighborSolidMap.upBlock);
+
+    const cacheKey =
+      isMultipartOrAutoHeal || isWaterlogged || name === 'water' || name.startsWith('water_') || name === 'bubble_column'
+        ? `${name}|${JSON.stringify(props)}|wl:${isWaterlogged ? 1 : 0}|upW:${upIsWater ? 1 : 0}|${neighborSolidMap.north},${neighborSolidMap.south},${neighborSolidMap.east},${neighborSolidMap.west},${neighborSolidMap.up}|${neighborSolidMap.northBlock},${neighborSolidMap.southBlock},${neighborSolidMap.eastBlock},${neighborSolidMap.westBlock}`
+        : `${name}|${JSON.stringify(props)}`;
 
     const cached = rawQuadsCache.get(cacheKey);
     if (cached) return cached;
@@ -1418,7 +1499,7 @@ export function getRawBlockQuads(
     const { atlasData, atlasWidth, atlasHeight } = mcmeta;
     const quads: RawQuadData[] = [];
     const isTranslucent = isTranslucentBlock(name);
-    const isWater = name === 'water' || name.startsWith('water_');
+    const isWater = name === 'water' || name.startsWith('water_') || name === 'bubble_column';
     const isIce = name.includes('ice');
     const isSolidCube = isFullOpaqueCube(name);
 
@@ -1661,8 +1742,8 @@ export function getRawBlockQuads(
             textures['base'] = 'block/oak_planks';
             textures['latch'] = 'block/iron_block';
           }
-        } else if (name === 'water' || name.startsWith('water_')) {
-          const fluidHeight = neighborSolidMap.up || (neighborSolidMap.upBlock && neighborSolidMap.upBlock.includes('water')) ? 16 : 14;
+        } else if (name === 'water' || name.startsWith('water_') || name === 'bubble_column') {
+          const fluidHeight = neighborSolidMap.up || isWaterOrWaterlogged(neighborSolidMap.upBlock) ? 16 : 14;
           finalElements = [
             {
               from: [0, 0, 0],
@@ -2046,6 +2127,176 @@ export function getRawBlockQuads(
       }
     }
 
+    // Generate water quads for waterlogged blocks (immersed inside water volume)
+    if (isWaterlogged) {
+      const fluidHeight =
+        neighborSolidMap.up ||
+        isWaterOrWaterlogged(neighborSolidMap.upBlock)
+          ? 16
+          : 14;
+
+      const isTopSolidSlab = props.type === 'top' && name.includes('slab');
+      const isBottomSolidSlab = (props.type === 'bottom' || !props.type) && name.includes('slab');
+
+      const waterFrom = [0, 0, 0];
+      const waterTo = [16, fluidHeight, 16];
+      const [x1, y1, z1] = waterFrom;
+      const [x2, y2, z2] = waterTo;
+
+      const WATER_FACE_CORNERS: Record<
+        string,
+        {
+          corners: [number, number, number][];
+          norm: [number, number, number];
+          defaultUv: [number, number, number, number];
+        }
+      > = {
+        down: {
+          corners: [
+            [x1, y1, z1],
+            [x2, y1, z1],
+            [x2, y1, z2],
+            [x1, y1, z2],
+          ],
+          norm: [0, -1, 0],
+          defaultUv: [x1, 16 - z2, x2, 16 - z1],
+        },
+        up: {
+          corners: [
+            [x1, y2, z1],
+            [x1, y2, z2],
+            [x2, y2, z2],
+            [x2, y2, z1],
+          ],
+          norm: [0, 1, 0],
+          defaultUv: [x1, z1, x2, z2],
+        },
+        north: {
+          corners: [
+            [x2, y2, z1],
+            [x1, y2, z1],
+            [x1, y1, z1],
+            [x2, y1, z1],
+          ],
+          norm: [0, 0, -1],
+          defaultUv: [16 - x2, 16 - y2, 16 - x1, 16 - y1],
+        },
+        south: {
+          corners: [
+            [x1, y2, z2],
+            [x2, y2, z2],
+            [x2, y1, z2],
+            [x1, y1, z2],
+          ],
+          norm: [0, 0, 1],
+          defaultUv: [x1, 16 - y2, x2, 16 - y1],
+        },
+        west: {
+          corners: [
+            [x1, y2, z1],
+            [x1, y2, z2],
+            [x1, y1, z2],
+            [x1, y1, z1],
+          ],
+          norm: [-1, 0, 0],
+          defaultUv: [z1, 16 - y2, z2, 16 - y1],
+        },
+        east: {
+          corners: [
+            [x2, y2, z2],
+            [x2, y2, z1],
+            [x2, y1, z1],
+            [x2, y1, z2],
+          ],
+          norm: [1, 0, 0],
+          defaultUv: [16 - z2, 16 - y2, 16 - z1, 16 - y1],
+        },
+      };
+
+      const uvBox = getAtlasUvBox('water_still', 'water', atlasData);
+      const px = Number(uvBox[0]) || 0;
+      const py = Number(uvBox[1]) || 0;
+      const pw = Number(uvBox[2]) || 16;
+      const ph = Number(uvBox[3]) || 16;
+      const frameWidth = pw > ph && ph > 0 ? ph : pw;
+      const frameHeight = ph > pw && pw > 0 ? pw : ph;
+
+      const waterColor = new THREE.Color('#3f76e4');
+
+      for (const [faceName, faceConfig] of Object.entries(WATER_FACE_CORNERS)) {
+        if (faceName === 'up' && isTopSolidSlab && !isWaterOrWaterlogged(neighborSolidMap.upBlock)) {
+          continue;
+        }
+        if (faceName === 'down' && isBottomSolidSlab && !isWaterOrWaterlogged(neighborSolidMap.downBlock)) {
+          continue;
+        }
+
+        let shadeFactor = 1.0;
+        if (faceName === 'up') shadeFactor = 1.0;
+        else if (faceName === 'down') shadeFactor = 0.5;
+        else if (faceName === 'north' || faceName === 'south') shadeFactor = 0.8;
+        else shadeFactor = 0.6;
+
+        const r = waterColor.r * shadeFactor;
+        const g = waterColor.g * shadeFactor;
+        const b = waterColor.b * shadeFactor;
+
+        const quadPos: [number, number, number][] = [];
+        const quadNorm: [number, number, number][] = [];
+        const quadUv: [number, number][] = [];
+
+        const [u1, v1, u2, v2] = faceConfig.defaultUv;
+        let uvCorners: [number, number][];
+        if (faceName === 'up') {
+          uvCorners = [
+            [u1, v1],
+            [u1, v2],
+            [u2, v2],
+            [u2, v1],
+          ];
+        } else {
+          uvCorners = [
+            [u1, v1],
+            [u2, v1],
+            [u2, v2],
+            [u1, v2],
+          ];
+        }
+
+        for (let c = 0; c < 4; c++) {
+          const pt = faceConfig.corners[c];
+          const nm = faceConfig.norm;
+
+          const vx = (pt[0] - 8) / 16;
+          const vy = (pt[1] - 8) / 16;
+          const vz = (pt[2] - 8) / 16;
+
+          quadPos.push([vx, vy, vz]);
+          quadNorm.push(nm);
+
+          const [cu, cv] = uvCorners[c] || [0, 0];
+          const U = (px + (cu / 16) * frameWidth) / atlasWidth;
+          const V = (py + (cv / 16) * frameHeight) / atlasHeight;
+          quadUv.push([U, V]);
+        }
+
+        const cullDir = faceName as 'down' | 'up' | 'north' | 'south' | 'west' | 'east';
+
+        quads.push({
+          cullDir,
+          isTranslucent: true,
+          isWater: true,
+          isIce: false,
+          pos: quadPos,
+          norm: quadNorm,
+          uv: quadUv,
+          r,
+          g,
+          b,
+        });
+      }
+    }
+
     rawQuadsCache.set(cacheKey, quads);
     return quads;
   } catch (err) {
@@ -2109,8 +2360,69 @@ export function buildMergedModuleGeometry(
     const y = Number(b.position?.y ?? b.y) || 0;
     const z = Number(b.position?.z ?? b.z) || 0;
     const type = String(b.type || b.name || '');
-    if (type) {
-      blockMap.set(`${x},${y},${z}`, type);
+    if (!type) continue;
+    const key = `${x},${y},${z}`;
+    const existing = blockMap.get(key);
+    if (existing) {
+      const existingClean = existing.toLowerCase().replace(/^minecraft:/, '');
+      const newClean = type.toLowerCase().replace(/^minecraft:/, '');
+      if (existingClean === 'water' || existingClean.startsWith('water_') || existingClean === 'bubble_column') {
+        if (!newClean.includes('waterlogged=true')) {
+          const merged = newClean.includes('[')
+            ? type.replace(/\]$/, ',waterlogged=true]')
+            : `${type}[waterlogged=true]`;
+          blockMap.set(key, merged);
+        } else {
+          blockMap.set(key, type);
+        }
+        continue;
+      } else if (newClean === 'water' || newClean.startsWith('water_') || newClean === 'bubble_column') {
+        if (!existingClean.includes('waterlogged=true')) {
+          const merged = existingClean.includes('[')
+            ? existing.replace(/\]$/, ',waterlogged=true]')
+            : `${existing}[waterlogged=true]`;
+          blockMap.set(key, merged);
+        }
+        continue;
+      }
+    }
+    blockMap.set(key, type);
+  }
+
+  // Precompute which voxel coordinates contain water (either pure water or waterlogged block)
+  const waterBlockSet = new Set<string>();
+  for (const [coord, blockType] of blockMap.entries()) {
+    if (isWaterOrWaterlogged(blockType)) {
+      waterBlockSet.add(coord);
+    }
+  }
+
+  // 2nd pass: submerged non-solid blocks without explicit waterlogged=false
+  for (const [coord, blockType] of blockMap.entries()) {
+    if (waterBlockSet.has(coord)) continue;
+    const { name, props } = parseBlockIdentifier(blockType);
+    if (props.waterlogged === 'false') continue;
+    const clean = name.toLowerCase().replace(/^minecraft:/, '');
+    if (isFullOpaqueCube(clean)) continue;
+
+    const [x, y, z] = coord.split(',').map(Number);
+    const upKey = `${x},${y + 1},${z}`;
+    const downKey = `${x},${y - 1},${z}`;
+    const northKey = `${x},${y},${z - 1}`;
+    const southKey = `${x},${y},${z + 1}`;
+    const westKey = `${x - 1},${y},${z}`;
+    const eastKey = `${x + 1},${y},${z}`;
+
+    const upIsWater = waterBlockSet.has(upKey);
+    const downIsWater = waterBlockSet.has(downKey);
+    const horizWater =
+      (waterBlockSet.has(northKey) ? 1 : 0) +
+      (waterBlockSet.has(southKey) ? 1 : 0) +
+      (waterBlockSet.has(westKey) ? 1 : 0) +
+      (waterBlockSet.has(eastKey) ? 1 : 0);
+
+    if (upIsWater || horizWater >= 3 || (horizWater >= 2 && downIsWater)) {
+      waterBlockSet.add(coord);
     }
   }
 
@@ -2154,6 +2466,13 @@ export function buildMergedModuleGeometry(
     const westNeighbor = blockMap.get(`${bx - 1},${by},${bz}`);
     const eastNeighbor = blockMap.get(`${bx + 1},${by},${bz}`);
 
+    const coordKey = `${bx},${by},${bz}`;
+    const isWaterlogged =
+      name !== 'water' &&
+      !name.startsWith('water_') &&
+      name !== 'bubble_column' &&
+      waterBlockSet.has(coordKey);
+
     const neighborSolidMap: NeighborSolidMap = {
       north: isSolidForConnection(northNeighbor),
       south: isSolidForConnection(southNeighbor),
@@ -2167,6 +2486,7 @@ export function buildMergedModuleGeometry(
       westBlock: westNeighbor,
       upBlock: upNeighbor,
       downBlock: downNeighbor,
+      isWaterlogged,
     };
 
     const isNeighborSolid = {
@@ -2190,14 +2510,16 @@ export function buildMergedModuleGeometry(
 
         // 2. Cull touching internal fluid/ice faces
         if (q.isWater) {
-          const n =
-            q.cullDir === 'down' ? downNeighbor :
-            q.cullDir === 'up' ? upNeighbor :
-            q.cullDir === 'north' ? northNeighbor :
-            q.cullDir === 'south' ? southNeighbor :
-            q.cullDir === 'west' ? westNeighbor : eastNeighbor;
-          if (n && n.toLowerCase().includes('water')) {
-            continue;
+          const isNeighborWater =
+            q.cullDir === 'down' ? waterBlockSet.has(`${bx},${by - 1},${bz}`) :
+            q.cullDir === 'up' ? waterBlockSet.has(`${bx},${by + 1},${bz}`) :
+            q.cullDir === 'north' ? waterBlockSet.has(`${bx},${by},${bz - 1}`) :
+            q.cullDir === 'south' ? waterBlockSet.has(`${bx},${by},${bz + 1}`) :
+            q.cullDir === 'west' ? waterBlockSet.has(`${bx - 1},${by},${bz}`) :
+            waterBlockSet.has(`${bx + 1},${by},${bz}`);
+
+          if (isNeighborWater) {
+            continue; // Skipped! Seamless fluid connection
           }
         }
         if (q.isIce) {
@@ -2207,7 +2529,8 @@ export function buildMergedModuleGeometry(
             q.cullDir === 'north' ? northNeighbor :
             q.cullDir === 'south' ? southNeighbor :
             q.cullDir === 'west' ? westNeighbor : eastNeighbor;
-          if (n && n.toLowerCase().includes('ice')) {
+          const cleanN = (n || '').toLowerCase().replace(/^minecraft:/, '').split('[')[0];
+          if (cleanN === 'ice' || cleanN === 'frosted_ice' || cleanN === 'packed_ice' || cleanN === 'blue_ice') {
             continue;
           }
         }

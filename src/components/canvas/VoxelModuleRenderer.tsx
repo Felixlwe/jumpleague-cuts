@@ -843,10 +843,14 @@ export function getBlockHighlightBounds(
   const canConnect = (neighbor?: VoxelBlock): boolean => {
     if (!neighbor) return false;
     const nType = (neighbor.type || '').toLowerCase().replace(/^minecraft:/, '');
+    const nName = nType.includes('[') ? nType.substring(0, nType.indexOf('[')) : nType;
     if (
-      nType.includes('air') ||
-      nType.includes('water') ||
-      nType.includes('lava')
+      nName.includes('air') ||
+      nName === 'water' ||
+      nName.startsWith('water_') ||
+      nName === 'bubble_column' ||
+      nName === 'lava' ||
+      nName.startsWith('lava_')
     ) {
       return false;
     }
