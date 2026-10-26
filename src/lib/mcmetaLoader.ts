@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { useEffect, useState } from 'react';
 import { resolveBlockTextureName } from '@/lib/minecraftTextures';
+import { normalizeBlockName } from '@/lib/schematicParser';
 
 /**
  * Neighbor connectivity map for auto-healing missing properties
@@ -11,6 +12,13 @@ export interface NeighborSolidMap {
   east: boolean;
   west: boolean;
   up: boolean;
+  down?: boolean;
+  northBlock?: string;
+  southBlock?: string;
+  eastBlock?: string;
+  westBlock?: string;
+  upBlock?: string;
+  downBlock?: string;
 }
 
 export interface RawMcmetaElement {
@@ -261,7 +269,7 @@ export function resolveFaceTintColor(
 }
 
 /**
- * Parses block type string into name and properties dictionary
+ * Parses block type string into name and properties dictionary with 1.20 normalization
  */
 export function parseBlockIdentifier(blockTypeString: string): {
   name: string;
@@ -270,18 +278,19 @@ export function parseBlockIdentifier(blockTypeString: string): {
   const clean = blockTypeString.trim().toLowerCase().replace(/^minecraft:/, '');
   const bracketIdx = clean.indexOf('[');
   if (bracketIdx === -1) {
-    return { name: clean, props: {} };
+    return { name: normalizeBlockName(clean), props: {} };
   }
 
-  const name = clean.substring(0, bracketIdx).trim();
+  const rawName = clean.substring(0, bracketIdx).trim();
+  const name = normalizeBlockName(rawName);
   const rawProps = clean.substring(bracketIdx + 1, clean.length - (clean.endsWith(']') ? 1 : 0));
   const props: Record<string, string> = {};
 
   for (const part of rawProps.split(',')) {
     const eqIdx = part.indexOf('=');
     if (eqIdx !== -1) {
-      const k = part.substring(0, eqIdx).trim();
-      const v = part.substring(eqIdx + 1).trim();
+      const k = part.substring(0, eqIdx).trim().toLowerCase();
+      const v = part.substring(eqIdx + 1).trim().toLowerCase();
       if (k) props[k] = v;
     }
   }
@@ -290,31 +299,134 @@ export function parseBlockIdentifier(blockTypeString: string): {
 }
 
 /**
- * Evaluates a multipart 'when' condition against the current block properties
+ * Evaluates a multipart 'when' condition against the current block properties,
+ * supporting recursive OR, AND, and pipe-separated values (e.g. "low|tall", "true|tall").
  */
-function matchWhenCondition(when: unknown, props: Record<string, string>): boolean {
+export function evaluateMultipartCondition(
+  when: unknown,
+  props: Record<string, string>
+): boolean {
   if (!when || typeof when !== 'object') return true;
+
+  if (Array.isArray(when)) {
+    return when.some((sub) => evaluateMultipartCondition(sub, props));
+  }
 
   const whenObj = when as Record<string, unknown>;
 
   if (Array.isArray(whenObj.OR)) {
-    return (whenObj.OR as unknown[]).some((sub) => matchWhenCondition(sub, props));
+    return (whenObj.OR as unknown[]).some((sub) => evaluateMultipartCondition(sub, props));
   }
   if (Array.isArray(whenObj.AND)) {
-    return (whenObj.AND as unknown[]).every((sub) => matchWhenCondition(sub, props));
+    return (whenObj.AND as unknown[]).every((sub) => evaluateMultipartCondition(sub, props));
   }
 
   for (const [k, v] of Object.entries(whenObj)) {
     if (k === 'OR' || k === 'AND') continue;
-    const currentVal = props[k.toLowerCase()] ?? '';
-    const targetVal = String(v).toLowerCase();
+    const propKey = k.toLowerCase().trim();
+    const currentVal = (props[propKey] ?? '').toLowerCase().trim();
+    const targetVal = String(v).toLowerCase().trim();
     const allowed = targetVal.split('|').map((s) => s.trim());
-    if (!allowed.includes(currentVal)) {
+
+    // Support legacy boolean vs 1.16+ low/tall equivalence
+    const isMatched = allowed.some((target) => {
+      if (target === currentVal) return true;
+      if (target === 'low' && currentVal === 'true') return true;
+      if (target === 'true' && (currentVal === 'low' || currentVal === 'tall')) return true;
+      return false;
+    });
+
+    if (!isMatched) {
       return false;
     }
   }
 
   return true;
+}
+
+/**
+ * Automatically computes stair shape (straight, inner_left, inner_right, outer_left, outer_right)
+ * from neighbor stairs if shape is not explicitly stored in schematic properties.
+ */
+export function determineStairShape(
+  props: Record<string, string>,
+  neighbors: {
+    northBlock?: string;
+    southBlock?: string;
+    eastBlock?: string;
+    westBlock?: string;
+  }
+): string {
+  if (props.shape) return props.shape;
+
+  const facing = props.facing || 'north';
+  const half = props.half || 'bottom';
+
+  const isMatchingStair = (neighborStr?: string): { isStair: boolean; facing?: string; half?: string } => {
+    if (!neighborStr || !neighborStr.includes('stairs')) return { isStair: false };
+    const { props: nProps } = parseBlockIdentifier(neighborStr);
+    const nHalf = nProps.half || 'bottom';
+    if (nHalf !== half) return { isStair: false };
+    return { isStair: true, facing: nProps.facing || 'north', half: nHalf };
+  };
+
+  const north = isMatchingStair(neighbors.northBlock);
+  const south = isMatchingStair(neighbors.southBlock);
+  const east = isMatchingStair(neighbors.eastBlock);
+  const west = isMatchingStair(neighbors.westBlock);
+
+  let front: typeof north;
+  let back: typeof north;
+
+  if (facing === 'north') {
+    front = north;
+    back = south;
+  } else if (facing === 'south') {
+    front = south;
+    back = north;
+  } else if (facing === 'west') {
+    front = west;
+    back = east;
+  } else {
+    front = east;
+    back = west;
+  }
+
+  // Outer corners (stair behind faces perpendicular)
+  if (back.isStair && back.facing) {
+    if (facing === 'north') {
+      if (back.facing === 'west') return 'outer_left';
+      if (back.facing === 'east') return 'outer_right';
+    } else if (facing === 'south') {
+      if (back.facing === 'west') return 'outer_right';
+      if (back.facing === 'east') return 'outer_left';
+    } else if (facing === 'west') {
+      if (back.facing === 'north') return 'outer_right';
+      if (back.facing === 'south') return 'outer_left';
+    } else if (facing === 'east') {
+      if (back.facing === 'north') return 'outer_left';
+      if (back.facing === 'south') return 'outer_right';
+    }
+  }
+
+  // Inner corners (stair in front faces perpendicular)
+  if (front.isStair && front.facing) {
+    if (facing === 'north') {
+      if (front.facing === 'west') return 'inner_left';
+      if (front.facing === 'east') return 'inner_right';
+    } else if (facing === 'south') {
+      if (front.facing === 'west') return 'inner_right';
+      if (front.facing === 'east') return 'inner_left';
+    } else if (facing === 'west') {
+      if (front.facing === 'north') return 'inner_right';
+      if (front.facing === 'south') return 'inner_left';
+    } else if (facing === 'east') {
+      if (front.facing === 'north') return 'inner_left';
+      if (front.facing === 'south') return 'inner_right';
+    }
+  }
+
+  return 'straight';
 }
 
 function extractTextureSprite(val: unknown): string {
@@ -438,6 +550,8 @@ function rotatePoint(
   return [nx + ox, ny + oy, nz + oz];
 }
 
+const warnedMissingTextures = new Set<string>();
+
 /**
  * Resolves the UV rectangle for a block's face from the misode/mcmeta texture atlas.
  * Strictly guarantees that the texture matches the block's actual name and never defaults to oak planks
@@ -497,8 +611,8 @@ export function getAtlasUvBox(
   }
 
   // 3. Special cases: chain, redstone wire
-  if (cleanBlock === 'chain' && atlasData['block/iron_chain']) {
-    return atlasData['block/iron_chain'];
+  if (cleanBlock === 'chain' && (atlasData['block/iron_chain'] || atlasData['block/chain'])) {
+    return atlasData['block/iron_chain'] || atlasData['block/chain'];
   }
   if (cleanBlock.includes('redstone') && atlasData['block/redstone_dust_dot']) {
     return atlasData['block/redstone_dust_dot'];
@@ -517,7 +631,16 @@ export function getAtlasUvBox(
     }
   }
 
-  // 5. Material family fallback: never use oak_planks unless it is oak
+  // 5. Development Diagnostic Warning (Point 7)
+  if (process.env.NODE_ENV !== 'production') {
+    const warnKey = `${cleanBlock}:${rawClean}`;
+    if (!warnedMissingTextures.has(warnKey)) {
+      warnedMissingTextures.add(warnKey);
+      console.warn('[Missing Block/Texture]', blockName, `(texture: ${texName})`);
+    }
+  }
+
+  // 6. Material family fallback: never use oak_planks unless it is oak
   if (cleanBlock.includes('oak')) {
     return atlasData['block/oak_planks'] || [0, 0, 16, 16];
   }
@@ -892,10 +1015,11 @@ export function getRawBlockQuads(
       name.includes('fence') ||
       name.includes('wall') ||
       name.includes('bars') ||
-      name.includes('pane');
+      name.includes('pane') ||
+      name.includes('stairs');
 
     const cacheKey = isMultipartOrAutoHeal
-      ? `${name}|${JSON.stringify(props)}|${neighborSolidMap.north},${neighborSolidMap.south},${neighborSolidMap.east},${neighborSolidMap.west},${neighborSolidMap.up}`
+      ? `${name}|${JSON.stringify(props)}|${neighborSolidMap.north},${neighborSolidMap.south},${neighborSolidMap.east},${neighborSolidMap.west},${neighborSolidMap.up}|${neighborSolidMap.northBlock},${neighborSolidMap.southBlock},${neighborSolidMap.eastBlock},${neighborSolidMap.westBlock}`
       : `${name}|${JSON.stringify(props)}`;
 
     const cached = rawQuadsCache.get(cacheKey);
@@ -958,6 +1082,13 @@ export function getRawBlockQuads(
       !name.includes('torch') &&
       !name.includes('banner')
     ) {
+      const canConnectWall = (n?: string) => {
+        if (!n) return false;
+        const c = n.toLowerCase().replace(/^minecraft:/, '').split('[')[0];
+        if (c.includes('wall') || c.includes('bars') || c.includes('pane')) return true;
+        return isFullOpaqueCube(n) || isSolidForConnection(n);
+      };
+
       const hasConn =
         props.north !== undefined ||
         props.south !== undefined ||
@@ -965,10 +1096,19 @@ export function getRawBlockQuads(
         props.west !== undefined;
 
       if (!hasConn) {
-        props.north = neighborSolidMap.north ? 'low' : 'none';
-        props.south = neighborSolidMap.south ? 'low' : 'none';
-        props.east = neighborSolidMap.east ? 'low' : 'none';
-        props.west = neighborSolidMap.west ? 'low' : 'none';
+        props.north = canConnectWall(neighborSolidMap.northBlock) ? 'low' : 'none';
+        props.south = canConnectWall(neighborSolidMap.southBlock) ? 'low' : 'none';
+        props.east = canConnectWall(neighborSolidMap.eastBlock) ? 'low' : 'none';
+        props.west = canConnectWall(neighborSolidMap.westBlock) ? 'low' : 'none';
+      } else {
+        if (props.north === 'true') props.north = 'low';
+        if (props.south === 'true') props.south = 'low';
+        if (props.east === 'true') props.east = 'low';
+        if (props.west === 'true') props.west = 'low';
+        if (props.north === 'false') props.north = 'none';
+        if (props.south === 'false') props.south = 'none';
+        if (props.east === 'false') props.east = 'none';
+        if (props.west === 'false') props.west = 'none';
       }
 
       const allNone =
@@ -977,9 +1117,12 @@ export function getRawBlockQuads(
         props.east === 'none' &&
         props.west === 'none';
 
-      // Standalone walls or walls with something placed on top must render center post
-      if (props.up === undefined || allNone || neighborSolidMap.up) {
-        props.up = 'true';
+      const isStraightLine =
+        (props.north !== 'none' && props.south !== 'none' && props.east === 'none' && props.west === 'none') ||
+        (props.east !== 'none' && props.west !== 'none' && props.north === 'none' && props.south === 'none');
+
+      if (props.up === undefined) {
+        props.up = allNone || !isStraightLine || Boolean(neighborSolidMap.up) ? 'true' : 'false';
       }
     }
 
@@ -989,6 +1132,15 @@ export function getRawBlockQuads(
       name.includes('bars') ||
       name.includes('pane')
     ) {
+      const isFence = name.includes('fence');
+      const canConnect = (n?: string) => {
+        if (!n) return false;
+        const c = n.toLowerCase().replace(/^minecraft:/, '').split('[')[0];
+        if (isFence && (c.includes('fence') || c.includes('gate'))) return true;
+        if (!isFence && (c.includes('pane') || c.includes('bars'))) return true;
+        return isFullOpaqueCube(n) || isSolidForConnection(n);
+      };
+
       const hasConn =
         props.north !== undefined ||
         props.south !== undefined ||
@@ -996,14 +1148,23 @@ export function getRawBlockQuads(
         props.west !== undefined;
 
       if (!hasConn) {
-        props.north = neighborSolidMap.north ? 'true' : 'false';
-        props.south = neighborSolidMap.south ? 'true' : 'false';
-        props.east = neighborSolidMap.east ? 'true' : 'false';
-        props.west = neighborSolidMap.west ? 'true' : 'false';
+        props.north = canConnect(neighborSolidMap.northBlock) ? 'true' : 'false';
+        props.south = canConnect(neighborSolidMap.southBlock) ? 'true' : 'false';
+        props.east = canConnect(neighborSolidMap.eastBlock) ? 'true' : 'false';
+        props.west = canConnect(neighborSolidMap.westBlock) ? 'true' : 'false';
       }
     }
 
-    // 5. Auto-Heal: Falltüren ohne definierte Orientierung
+    // 5. Auto-Heal: Treppen (Stairs) Shape & Orientation
+    if (name.includes('stairs')) {
+      if (!props.facing) props.facing = 'north';
+      if (!props.half) props.half = 'bottom';
+      if (!props.shape) {
+        props.shape = determineStairShape(props, neighborSolidMap);
+      }
+    }
+
+    // 6. Auto-Heal: Falltüren (Trapdoors)
     if (name.includes('trapdoor')) {
       if (!props.facing) props.facing = 'north';
       if (!props.half) props.half = 'bottom';
@@ -1043,8 +1204,18 @@ export function getRawBlockQuads(
           let score = 0;
 
           for (const pair of pairs) {
-            const [k, v] = pair.split('=');
-            if (props[k] === v) {
+            const eqIdx = pair.indexOf('=');
+            if (eqIdx === -1) continue;
+            const k = pair.substring(0, eqIdx).trim().toLowerCase();
+            const v = pair.substring(eqIdx + 1).trim().toLowerCase();
+            const allowed = v.split('|').map((s) => s.trim());
+            const cur = (props[k] ?? '').toLowerCase().trim();
+
+            if (allowed.includes(cur)) {
+              score++;
+            } else if (allowed.includes('true') && cur === 'low') {
+              score++;
+            } else if (allowed.includes('low') && cur === 'true') {
               score++;
             } else {
               matches = false;
@@ -1059,30 +1230,32 @@ export function getRawBlockQuads(
         }
 
         if (!bestMatch && Object.keys(def.variants).length > 0) {
-          bestMatch = Object.values(def.variants)[0];
+          bestMatch = def.variants[''] || Object.values(def.variants)[0];
         }
 
-        const chosen = Array.isArray(bestMatch) ? bestMatch[0] : bestMatch;
-        if (chosen && chosen.model) {
-          appliedModels.push(chosen);
+        if (bestMatch) {
+          const arr = Array.isArray(bestMatch) ? bestMatch : [bestMatch];
+          for (const item of arr) {
+            if (item && item.model) appliedModels.push(item);
+          }
         }
       }
 
       if (def.multipart && Array.isArray(def.multipart)) {
         for (const part of def.multipart) {
-          if (!part.when || matchWhenCondition(part.when, props)) {
-            const applied = Array.isArray(part.apply) ? part.apply[0] : part.apply;
-            if (applied && applied.model) {
-              appliedModels.push(applied);
+          if (!part.when || evaluateMultipartCondition(part.when, props)) {
+            const arr = Array.isArray(part.apply) ? part.apply : [part.apply];
+            for (const item of arr) {
+              if (item && item.model) appliedModels.push(item);
             }
           }
         }
 
         if (appliedModels.length === 0 && def.multipart.length > 0) {
           const firstPart = def.multipart[0];
-          const applied = Array.isArray(firstPart.apply) ? firstPart.apply[0] : firstPart.apply;
-          if (applied && applied.model) {
-            appliedModels.push(applied);
+          const arr = Array.isArray(firstPart.apply) ? firstPart.apply : [firstPart.apply];
+          for (const item of arr) {
+            if (item && item.model) appliedModels.push(item);
           }
         }
       }
@@ -1101,15 +1274,98 @@ export function getRawBlockQuads(
 
     for (const item of appliedModels) {
       const modelId = item.model;
-      const rotX = item.x ? -item.x : 0;
+      const rotX = item.x || 0;
       const rotY = item.y ? -item.y : 0;
+      const uvlock = Boolean(item.uvlock);
 
       const { textures, elements } = resolveModelDefinition(modelId, mcmeta.models);
 
       let finalElements = elements;
 
       if (!finalElements || finalElements.length === 0) {
-        if (name.includes('sign') && (name.includes('wall') || props.facing)) {
+        if (name.includes('bed')) {
+          const colorMatch = name.match(/^([a-z_]+?)_bed$/);
+          const color = colorMatch ? colorMatch[1] : 'red';
+          const part = props.part || 'foot';
+
+          finalElements = [
+            {
+              from: [0, 3, 0],
+              to: [16, 9, 16],
+              faces: {
+                down: { texture: '#wood' },
+                up: { texture: '#blanket' },
+                north: { texture: '#blanket' },
+                south: { texture: '#blanket' },
+                west: { texture: '#blanket' },
+                east: { texture: '#blanket' },
+              },
+            },
+          ];
+
+          if (part === 'head') {
+            finalElements.push({
+              from: [1, 9, 0],
+              to: [15, 9.5, 7],
+              faces: {
+                up: { texture: '#pillow' },
+                north: { texture: '#pillow' },
+                south: { texture: '#pillow' },
+                west: { texture: '#pillow' },
+                east: { texture: '#pillow' },
+              },
+            });
+            finalElements.push({
+              from: [0, 0, 0],
+              to: [3, 3, 3],
+              faces: {
+                down: { texture: '#wood' },
+                north: { texture: '#wood' },
+                south: { texture: '#wood' },
+                west: { texture: '#wood' },
+                east: { texture: '#wood' },
+              },
+            });
+            finalElements.push({
+              from: [13, 0, 0],
+              to: [16, 3, 3],
+              faces: {
+                down: { texture: '#wood' },
+                north: { texture: '#wood' },
+                south: { texture: '#wood' },
+                west: { texture: '#wood' },
+                east: { texture: '#wood' },
+              },
+            });
+          } else {
+            finalElements.push({
+              from: [0, 0, 13],
+              to: [3, 3, 16],
+              faces: {
+                down: { texture: '#wood' },
+                north: { texture: '#wood' },
+                south: { texture: '#wood' },
+                west: { texture: '#wood' },
+                east: { texture: '#wood' },
+              },
+            });
+            finalElements.push({
+              from: [13, 0, 13],
+              to: [16, 3, 16],
+              faces: {
+                down: { texture: '#wood' },
+                north: { texture: '#wood' },
+                south: { texture: '#wood' },
+                west: { texture: '#wood' },
+                east: { texture: '#wood' },
+              },
+            });
+          }
+
+          textures['wood'] = 'block/oak_planks';
+          textures['blanket'] = `block/${color}_wool`;
+          textures['pillow'] = 'block/white_wool';
+        } else if (name.includes('sign') && (name.includes('wall') || props.facing)) {
           const woodMatch = name.match(/^([a-z_]+?)(_wall)?(_hanging)?_sign$/);
           const wood = woodMatch ? woodMatch[1] : 'oak';
           finalElements = [
@@ -1248,15 +1504,19 @@ export function getRawBlockQuads(
           if (name.includes('ender')) {
             textures['base'] = 'block/obsidian';
             textures['latch'] = 'block/gold_block';
+          } else if (name.includes('trapped')) {
+            textures['base'] = 'block/oak_planks';
+            textures['latch'] = 'block/redstone_block';
           } else {
             textures['base'] = 'block/oak_planks';
             textures['latch'] = 'block/iron_block';
           }
         } else if (name === 'water' || name.startsWith('water_')) {
+          const fluidHeight = neighborSolidMap.up || (neighborSolidMap.upBlock && neighborSolidMap.upBlock.includes('water')) ? 16 : 14;
           finalElements = [
             {
               from: [0, 0, 0],
-              to: [16, 16, 16],
+              to: [16, fluidHeight, 16],
               faces: {
                 down: { texture: `#all` },
                 up: { texture: `#all` },
@@ -1269,10 +1529,11 @@ export function getRawBlockQuads(
           ];
           textures['all'] = 'block/water_still';
         } else if (name === 'lava' || name.startsWith('lava_')) {
+          const fluidHeight = neighborSolidMap.up || (neighborSolidMap.upBlock && neighborSolidMap.upBlock.includes('lava')) ? 16 : 14;
           finalElements = [
             {
               from: [0, 0, 0],
-              to: [16, 16, 16],
+              to: [16, fluidHeight, 16],
               faces: {
                 down: { texture: `#all` },
                 up: { texture: `#all` },
@@ -1285,10 +1546,11 @@ export function getRawBlockQuads(
           ];
           textures['all'] = 'block/lava_still';
         } else if (name.includes('skull') || name.includes('head')) {
+          const isWall = name.includes('wall') || (props.facing && props.facing !== 'up');
           finalElements = [
             {
-              from: [4, 0, 4],
-              to: [12, 8, 12],
+              from: isWall ? [4, 4, 8] : [4, 0, 4],
+              to: isWall ? [12, 12, 16] : [12, 8, 12],
               faces: {
                 down: { texture: `#head` },
                 up: { texture: `#head` },
@@ -1339,7 +1601,14 @@ export function getRawBlockQuads(
         const [x1, y1, z1] = from;
         const [x2, y2, z2] = to;
 
-        const FACE_CORNERS: Record<string, { corners: [number, number, number][]; norm: [number, number, number]; defaultUv: [number, number, number, number] }> = {
+        const FACE_CORNERS: Record<
+          string,
+          {
+            corners: [number, number, number][];
+            norm: [number, number, number];
+            defaultUv: [number, number, number, number];
+          }
+        > = {
           down: {
             corners: [
               [x1, y1, z1],
@@ -1408,8 +1677,18 @@ export function getRawBlockQuads(
           if (!faceConfig) continue;
 
           let rawTex = typeof faceData.texture === 'string' ? faceData.texture : '#all';
-          if (rawTex.startsWith('#')) {
-            rawTex = textures[rawTex.slice(1)] || rawTex.slice(1);
+          let resolveDepth = 0;
+          while (typeof rawTex === 'string' && rawTex.startsWith('#') && resolveDepth < 10) {
+            const varName = rawTex.slice(1);
+            if (textures[varName]) {
+              rawTex = textures[varName];
+            } else {
+              break;
+            }
+            resolveDepth++;
+          }
+          if (typeof rawTex === 'string' && rawTex.startsWith('#')) {
+            rawTex = rawTex.slice(1);
           }
           const texClean = typeof rawTex === 'string' ? rawTex.replace(/^minecraft:/, '') : 'stone';
 
@@ -1426,6 +1705,15 @@ export function getRawBlockQuads(
           const u2 = Number(rawFaceUv[2]) || 16;
           const v2 = Number(rawFaceUv[3]) || 16;
 
+          let uvRot = (Number(faceData.rotation) || 0) % 360;
+          if (uvlock) {
+            if (faceName === 'up') {
+              uvRot = (uvRot + (360 - (item.y || 0))) % 360;
+            } else if (faceName === 'down') {
+              uvRot = (uvRot + (item.y || 0)) % 360;
+            }
+          }
+
           let uvCorners: [number, number][] = [
             [u1, v1],
             [u2, v1],
@@ -1433,7 +1721,6 @@ export function getRawBlockQuads(
             [u1, v2],
           ];
 
-          const uvRot = Number(faceData.rotation) || 0;
           if (uvRot === 90) {
             uvCorners = [uvCorners[3], uvCorners[0], uvCorners[1], uvCorners[2]];
           } else if (uvRot === 180) {
@@ -1488,10 +1775,39 @@ export function getRawBlockQuads(
               nm = rotatePoint(nm, [0, 0, 0], 'y', rotY);
             }
 
+            // Chest facing rotation when not part of variants
+            if (name.includes('chest') && rotY === 0 && props.facing) {
+              let chestRot = 0;
+              if (props.facing === 'north') chestRot = 0;
+              else if (props.facing === 'south') chestRot = 180;
+              else if (props.facing === 'west') chestRot = 270;
+              else if (props.facing === 'east') chestRot = 90;
+              if (chestRot !== 0) {
+                pt = rotatePoint(pt, [8, 8, 8], 'y', -chestRot);
+                nm = rotatePoint(nm, [0, 0, 0], 'y', -chestRot);
+              }
+            }
+
+            // Standing sign rotation
             if (name.includes('sign') && !name.includes('wall') && props.rotation !== undefined) {
               const signRot = -(Number(props.rotation || 0) * 22.5);
               pt = rotatePoint(pt, [8, 8, 8], 'y', signRot);
               nm = rotatePoint(nm, [0, 0, 0], 'y', signRot);
+            }
+
+            // Skull rotation
+            if ((name.includes('skull') || name.includes('head')) && !name.includes('wall')) {
+              if (props.rotation !== undefined) {
+                const headRot = -(Number(props.rotation || 0) * 22.5);
+                pt = rotatePoint(pt, [8, 8, 8], 'y', headRot);
+                nm = rotatePoint(nm, [0, 0, 0], 'y', headRot);
+              }
+            }
+
+            // Re-normalize normal vector
+            const nLen = Math.hypot(nm[0], nm[1], nm[2]);
+            if (nLen > 0.0001) {
+              nm = [nm[0] / nLen, nm[1] / nLen, nm[2] / nLen];
             }
 
             let vx = (pt[0] - 8) / 16;
@@ -1540,7 +1856,7 @@ export function getRawBlockQuads(
           const b = baseColor.b * shadeFactor;
 
           let cullDir = detectBoundaryCullDir(quadPos, quadNorm[0] || [0, 1, 0]);
-          if (!cullDir && isSolidCube) {
+          if (!cullDir && isSolidCube && rotX === 0 && rotY === 0) {
             if (['down', 'up', 'north', 'south', 'west', 'east'].includes(faceName)) {
               cullDir = faceName as any;
             }
@@ -1663,20 +1979,27 @@ export function buildMergedModuleGeometry(
       continue;
     }
 
-    const neighborSolidMap: NeighborSolidMap = {
-      north: isSolidForConnection(blockMap.get(`${bx},${by},${bz - 1}`)),
-      south: isSolidForConnection(blockMap.get(`${bx},${by},${bz + 1}`)),
-      east: isSolidForConnection(blockMap.get(`${bx + 1},${by},${bz}`)),
-      west: isSolidForConnection(blockMap.get(`${bx - 1},${by},${bz}`)),
-      up: isSolidForConnection(blockMap.get(`${bx},${by + 1},${bz}`)),
-    };
-
     const downNeighbor = blockMap.get(`${bx},${by - 1},${bz}`);
     const upNeighbor = blockMap.get(`${bx},${by + 1},${bz}`);
     const northNeighbor = blockMap.get(`${bx},${by},${bz - 1}`);
     const southNeighbor = blockMap.get(`${bx},${by},${bz + 1}`);
     const westNeighbor = blockMap.get(`${bx - 1},${by},${bz}`);
     const eastNeighbor = blockMap.get(`${bx + 1},${by},${bz}`);
+
+    const neighborSolidMap: NeighborSolidMap = {
+      north: isSolidForConnection(northNeighbor),
+      south: isSolidForConnection(southNeighbor),
+      east: isSolidForConnection(eastNeighbor),
+      west: isSolidForConnection(westNeighbor),
+      up: isSolidForConnection(upNeighbor),
+      down: isSolidForConnection(downNeighbor),
+      northBlock: northNeighbor,
+      southBlock: southNeighbor,
+      eastBlock: eastNeighbor,
+      westBlock: westNeighbor,
+      upBlock: upNeighbor,
+      downBlock: downNeighbor,
+    };
 
     const isNeighborSolid = {
       down: downNeighbor ? isFullOpaqueCube(downNeighbor) : false,

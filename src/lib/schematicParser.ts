@@ -152,11 +152,51 @@ export function createJLModule(options: {
 }
 
 /**
+ * Normalizes legacy or alternative block names to official modern Minecraft 1.20+ IDs
+ */
+export function normalizeBlockName(raw: string): string {
+  let clean = raw.toLowerCase().trim().replace(/^minecraft:/i, '');
+
+  // 1.20 Name-Normalisierung:
+  if (clean === 'grass') return 'short_grass';
+  if (clean === 'tallgrass') return 'tall_grass';
+  if (clean === 'sign') return 'oak_sign';
+  if (clean === 'wall_sign') return 'oak_wall_sign';
+  if (clean === 'skull') return 'skeleton_skull';
+  if (clean === 'bed') return 'red_bed';
+
+  // Legacy aliases
+  if (clean === 'trapdoor') return 'oak_trapdoor';
+  if (clean === 'wooden_door') return 'oak_door';
+  if (clean === 'fence') return 'oak_fence';
+  if (clean === 'fence_gate') return 'oak_fence_gate';
+  if (clean === 'wooden_slab') return 'oak_slab';
+  if (clean === 'leaves') return 'oak_leaves';
+  if (clean === 'log') return 'oak_log';
+  if (clean === 'leaves2') return 'acacia_leaves';
+  if (clean === 'log2') return 'acacia_log';
+  if (clean === 'banner') return 'white_banner';
+  if (clean === 'wall_banner') return 'white_wall_banner';
+  if (clean === 'carpet') return 'white_carpet';
+  if (clean === 'concrete') return 'white_concrete';
+  if (clean === 'concrete_powder') return 'white_concrete_powder';
+  if (clean === 'wool') return 'white_wool';
+  if (clean === 'stained_hardened_clay' || clean === 'hardened_clay') return 'terracotta';
+  if (clean === 'stained_glass') return 'white_stained_glass';
+  if (clean === 'stained_glass_pane') return 'white_stained_glass_pane';
+  if (clean === 'double_stone_slab') return 'smooth_stone';
+  if (clean === 'double_wooden_slab') return 'oak_planks';
+  if (clean === 'step') return 'stone_slab';
+
+  return clean;
+}
+
+/**
  * Parses block state strings formatted like:
  * "minecraft:oak_stairs[facing=east,half=bottom,waterlogged=false]"
  * or block names with an optional NBT properties compound.
  * Always builds a canonical sorted bracket string (e.g. "minecraft:vine[east=false,north=true]")
- * and a string properties dictionary.
+ * and a lossless string properties dictionary.
  */
 export function parseBlockStateString(
   raw: string,
@@ -174,7 +214,8 @@ export function parseBlockStateString(
 } {
   const bracketIdx = raw.indexOf('[');
   const fullName = bracketIdx === -1 ? raw : raw.substring(0, bracketIdx);
-  const cleanName = fullName.replace(/^minecraft:/, '').toLowerCase().trim();
+  const rawClean = fullName.replace(/^minecraft:/i, '').toLowerCase().trim();
+  const cleanName = normalizeBlockName(rawClean);
   const properties: Record<string, string> = {};
   const state: Record<string, string | boolean | number> = {};
 
@@ -214,7 +255,7 @@ export function parseBlockStateString(
   }
 
   // 3. Construct canonical formatted type string with sorted properties:
-  // e.g. "minecraft:vine[east=false,north=true]"
+  // e.g. "minecraft:oak_stairs[facing=east,half=bottom,shape=straight]"
   const sortedKeys = Object.keys(properties).sort();
   const formattedType =
     sortedKeys.length > 0
