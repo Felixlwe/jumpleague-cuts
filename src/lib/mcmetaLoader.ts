@@ -671,23 +671,35 @@ export function isFullOpaqueCube(blockTypeString: string): boolean {
     return false;
   }
 
-  // Full solid opaque blocks that contain substrings that would otherwise match exclusion rules below
+  // Full solid opaque blocks that contain substrings that would otherwise match exclusion rules below.
+  // We use strict equality checks (clean === ...) so we never accidentally match partial blocks like bamboo_mosaic_slab!
   if (
     clean === 'grass_block' ||
     clean === 'honeycomb_block' ||
     clean === 'packed_ice' ||
     clean === 'blue_ice' ||
-    clean.includes('packed_ice_bricks') ||
+    clean === 'packed_ice_bricks' ||
     clean === 'redstone_block' ||
     clean === 'redstone_lamp' ||
-    clean.includes('redstone_ore') ||
-    clean.includes('bamboo_planks') ||
-    clean.includes('bamboo_mosaic') ||
-    clean.includes('bamboo_block') ||
-    clean === 'mangrove_roots' ||
+    clean === 'redstone_ore' ||
+    clean === 'deepslate_redstone_ore' ||
+    clean === 'bamboo_planks' ||
+    clean === 'bamboo_mosaic' ||
+    clean === 'bamboo_block' ||
+    clean === 'stripped_bamboo_block' ||
     clean === 'muddy_mangrove_roots' ||
-    clean.includes('mushroom_block') ||
-    clean === 'mushroom_stem'
+    clean === 'brown_mushroom_block' ||
+    clean === 'red_mushroom_block' ||
+    clean === 'mushroom_stem' ||
+    clean.endsWith('_coral_block') ||
+    clean === 'dried_kelp_block' ||
+    clean === 'snow_block' ||
+    clean === 'dripstone_block' ||
+    clean === 'amethyst_block' ||
+    clean === 'nether_wart_block' ||
+    clean === 'warped_wart_block' ||
+    clean === 'bookshelf' ||
+    clean === 'chiseled_bookshelf'
   ) {
     return true;
   }
@@ -751,6 +763,9 @@ export function isFullOpaqueCube(blockTypeString: string): boolean {
     clean.includes('chest') ||
     clean.includes('bed') ||
     clean.includes('bell') ||
+    clean.includes('beacon') ||
+    clean.includes('conduit') ||
+    clean.includes('composter') ||
     clean.includes('anvil') ||
     clean.includes('hopper') ||
     clean.includes('cauldron') ||
@@ -771,7 +786,6 @@ export function isFullOpaqueCube(blockTypeString: string): boolean {
     clean.includes('tripwire') ||
     clean.includes('campfire') ||
     clean.includes('scaffolding') ||
-    clean.includes('conduit') ||
     clean.includes('cake') ||
     clean.includes('candle') ||
     clean.includes('amethyst_cluster') ||
@@ -802,7 +816,41 @@ export function isFullOpaqueCube(blockTypeString: string): boolean {
     clean.includes('fungus') ||
     clean.includes('roots') ||
     clean.includes('sprouts') ||
-    clean.includes('mushroom')
+    clean.includes('mushroom') ||
+    clean.includes('coral') ||
+    clean.includes('kelp') ||
+    clean.includes('seagrass') ||
+    clean.includes('dripleaf') ||
+    clean.includes('spore') ||
+    clean.includes('azalea') ||
+    clean.includes('lichen') ||
+    clean.includes('sculk_sensor') ||
+    clean.includes('sculk_shrieker') ||
+    clean.includes('sculk_vein') ||
+    clean.includes('grate') ||
+    clean.includes('heavy_core') ||
+    clean.includes('petals') ||
+    clean.includes('portal') ||
+    clean.includes('gateway') ||
+    clean.includes('crystal') ||
+    clean.includes('statue') ||
+    clean.includes('clump') ||
+    clean.includes('spike') ||
+    clean.includes('torchflower') ||
+    clean.includes('pitcher') ||
+    clean.includes('item_frame') ||
+    clean.includes('dead_bush') ||
+    clean.includes('eyeblossom') ||
+    clean.includes('leaf_litter') ||
+    clean.includes('hanging_moss') ||
+    clean.includes('propagule') ||
+    clean.includes('shrub') ||
+    clean.includes('bubble_column') ||
+    clean.includes('vault') ||
+    clean.includes('icicle') ||
+    clean === 'mangrove_roots' ||
+    (clean.includes('nether_wart') && !clean.includes('nether_wart_block')) ||
+    (clean.includes('shelf') && !clean.includes('bookshelf'))
   ) {
     return false;
   }
