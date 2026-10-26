@@ -15,11 +15,9 @@ import {
 import { useJLStore } from '@/store/useJLStore';
 import {
   ALL_CUT_DIFFICULTIES,
-  ALL_MOVEMENT_TECHS,
   CUT_DIFFICULTY_CONFIG,
-  MOVEMENT_TECH_CONFIG,
 } from '@/constants/jumpleagueConfig';
-import { CutDifficulty, MovementTech } from '@/types/jumpleague';
+import { CutDifficulty } from '@/types/jumpleague';
 import {
   isValidVideoUrl,
   MAX_CUT_NAME_LENGTH,
@@ -53,7 +51,6 @@ export const SubmissionModal: React.FC = () => {
   const [timeSavedSeconds, setTimeSavedSeconds] = useState<string>('2.1');
   const [difficulty, setDifficulty] = useState<CutDifficulty>('MEDIUM');
   const [consistencyRating, setConsistencyRating] = useState<number>(4);
-  const [techniques, setTechniques] = useState<MovementTech[]>(['STRAFE_45']);
   const [description, setDescription] = useState('');
   const [videoSourceType, setVideoSourceType] = useState<'URL' | 'FILE'>('URL');
   const [videoUrl, setVideoUrl] = useState('');
@@ -64,12 +61,6 @@ export const SubmissionModal: React.FC = () => {
   if (activeMode !== 'SUBMIT') {
     return null;
   }
-
-  const toggleTechnique = (tech: MovementTech) => {
-    setTechniques((prev) =>
-      prev.includes(tech) ? prev.filter((t) => t !== tech) : [...prev, tech]
-    );
-  };
 
   const handleLocalFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -141,7 +132,7 @@ export const SubmissionModal: React.FC = () => {
       timeSavedSeconds: validatedTimeSaved,
       difficulty,
       consistencyRating,
-      techniques: techniques.length > 0 ? techniques : ['TIMING'],
+      techniques: [],
       startBlock: draftStartBlock,
       midPoints: undefined,
       endBlock: draftEndBlock,
@@ -434,31 +425,6 @@ export const SubmissionModal: React.FC = () => {
                   />
                 </button>
               ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-              Verwendete Techniken
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {ALL_MOVEMENT_TECHS.map((tech) => {
-                const isSelected = techniques.includes(tech);
-                return (
-                  <button
-                    key={tech}
-                    type="button"
-                    onClick={() => toggleTechnique(tech)}
-                    className={`rounded-lg border px-2.5 py-1 font-mono text-[10px] transition ${
-                      isSelected
-                        ? 'bg-cyan-500/20 border-cyan-400/60 text-cyan-300 font-bold'
-                        : 'bg-zinc-900/60 border-white/10 text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    {MOVEMENT_TECH_CONFIG[tech].label}
-                  </button>
-                );
-              })}
             </div>
           </div>
         </div>

@@ -13,9 +13,7 @@ import {
 import { useJLStore, doesCutMatchFilters } from '@/store/useJLStore';
 import {
   ALL_CUT_DIFFICULTIES,
-  ALL_MOVEMENT_TECHS,
   CUT_DIFFICULTY_CONFIG,
-  MOVEMENT_TECH_CONFIG,
 } from '@/constants/jumpleagueConfig';
 
 export const FilterDrawer: React.FC = () => {
@@ -29,13 +27,11 @@ export const FilterDrawer: React.FC = () => {
   const toggleCutDifficultyFilter = useJLStore(
     (s) => s.toggleCutDifficultyFilter
   );
-  const toggleTechniqueFilter = useJLStore((s) => s.toggleTechniqueFilter);
   const resetFilters = useJLStore((s) => s.resetFilters);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (filters.cutDifficulties.length > 0) count += 1;
-    if (filters.techniques.length > 0) count += 1;
     if (filters.minTimeSaved > 0) count += 1;
     if (filters.minConsistency > 1) count += 1;
     if (filters.searchQuery.trim() !== '') count += 1;
@@ -139,7 +135,7 @@ export const FilterDrawer: React.FC = () => {
             type="text"
             value={filters.searchQuery}
             onChange={(e) => updateFilters({ searchQuery: e.target.value })}
-            placeholder="Cut-Name, Lineup oder Technik suchen..."
+            placeholder="Cut-Name oder Lineup suchen..."
             className="w-full rounded-xl border border-white/10 bg-zinc-900/80 py-1.5 pl-9 pr-3 text-xs text-zinc-100 placeholder-zinc-500 focus:border-cyan-400/60 focus:outline-none"
           />
         </div>
@@ -189,47 +185,6 @@ export const FilterDrawer: React.FC = () => {
                   <span className="truncate font-mono text-[10px]">
                     {cfg.shortLabel}
                   </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* 3. Movement-Techniken */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <label className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-              Movement-Techniken
-            </label>
-            {filters.techniques.length > 0 && (
-              <button
-                type="button"
-                onClick={() => updateFilters({ techniques: [] })}
-                className="font-mono text-[10px] text-cyan-400 hover:underline"
-              >
-                Auswahl löschen
-              </button>
-            )}
-          </div>
-
-          <div className="flex flex-wrap gap-1">
-            {ALL_MOVEMENT_TECHS.map((tech) => {
-              const isSelected = filters.techniques.includes(tech);
-              const techInfo = MOVEMENT_TECH_CONFIG[tech];
-
-              return (
-                <button
-                  key={tech}
-                  type="button"
-                  onClick={() => toggleTechniqueFilter(tech)}
-                  title={techInfo.description}
-                  className={`rounded-lg border px-2 py-0.5 font-mono text-[10px] font-semibold transition-all ${
-                    isSelected
-                      ? 'bg-cyan-500/20 border-cyan-400/60 text-cyan-300'
-                      : 'bg-zinc-900/60 border-white/10 text-zinc-400 hover:border-white/20 hover:text-zinc-200'
-                  }`}
-                >
-                  {techInfo.label}
                 </button>
               );
             })}
