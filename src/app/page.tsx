@@ -32,7 +32,6 @@ import { parseSchematicFile } from '@/lib/schematicParser';
 import { AdminAuthModal } from '@/components/hud/AdminAuthModal';
 import { CreateModuleModal } from '@/components/hud/CreateModuleModal';
 import { HomeCutsSidebar } from '@/components/home/HomeCutsSidebar';
-import { DIAMOND_BOOTS_DATA_URI } from '@/constants/diamondBootsAsset';
 
 type TabCategory = 'ALL' | ModuleDifficulty;
 
@@ -164,7 +163,7 @@ const ModuleThumbnailFallback: React.FC<{
       ref={canvasRef}
       width={240}
       height={110}
-      className="absolute inset-0 h-full w-full object-cover opacity-35 transition-opacity duration-300 group-hover:opacity-55 pointer-events-none"
+      className="jl-thumb absolute inset-0 h-full w-full object-cover opacity-35 pointer-events-none"
     />
   );
 };
@@ -262,7 +261,7 @@ const ModuleCard = React.memo(function ModuleCard({
       )}
 
       {/* Dark subtle gradient overlay ensuring text readability */}
-      <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/65 to-transparent pointer-events-none" />
+      <div className="jl-overlay absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/65 to-transparent pointer-events-none" />
 
       {/* Subtle Radial Ambient Spotlight on Hover */}
       <div
@@ -360,7 +359,7 @@ const ModuleCard = React.memo(function ModuleCard({
 
         <div className="flex items-center gap-2">
           {maxTimeSaved > 0 && (
-            <span className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-400">
+            <span className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-400 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
               <Zap className="h-3 w-3" />
               <span>-{maxTimeSaved.toFixed(1)}s</span>
             </span>
@@ -622,7 +621,7 @@ export default function ModuleHubPage() {
             <div className="relative flex h-16 w-16 sm:h-20 sm:w-20 shrink-0 items-center justify-center rounded-2xl border border-cyan-400/35 bg-cyan-500/10 p-1.5 shadow-[0_0_30px_rgba(34,211,238,0.25)] backdrop-blur-md">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={DIAMOND_BOOTS_DATA_URI}
+                src="/images/jumpleague-logo.png"
                 alt="JumpLeague Cuts Logo"
                 className="h-full w-full object-contain [image-rendering:pixelated] drop-shadow-[0_0_12px_rgba(34,211,238,0.7)] transition-transform duration-300 hover:scale-105"
               />
