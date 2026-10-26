@@ -283,6 +283,10 @@ export function parseBlockStateString(
   const half =
     hVal === 'top' || hVal === 'bottom'
       ? (hVal as 'bottom' | 'top')
+      : hVal === 'upper'
+      ? 'top'
+      : hVal === 'lower'
+      ? 'bottom'
       : undefined;
 
   const tVal = properties.type || state.type;
@@ -543,30 +547,60 @@ const LEGACY_ID_MAP: Record<number, string> = {
   19: 'sponge',
   20: 'glass',
   24: 'sandstone',
+  26: 'red_bed',
+  29: 'sticky_piston',
   30: 'cobweb',
+  31: 'short_grass',
+  32: 'dead_bush',
+  33: 'piston',
+  34: 'piston_head',
   35: 'white_wool',
+  37: 'dandelion',
+  38: 'poppy',
+  39: 'brown_mushroom',
+  40: 'red_mushroom',
   41: 'gold_block',
   42: 'iron_block',
   43: 'smooth_stone',
   44: 'stone_slab',
   45: 'bricks',
+  47: 'bookshelf',
+  48: 'mossy_cobblestone',
   49: 'obsidian',
+  50: 'torch',
+  51: 'fire',
   53: 'oak_stairs',
+  54: 'chest',
   57: 'diamond_block',
+  58: 'crafting_table',
+  59: 'wheat',
+  60: 'farmland',
+  61: 'furnace',
   64: 'oak_door',
   65: 'ladder',
   66: 'rail',
   67: 'cobblestone_stairs',
+  69: 'lever',
+  70: 'stone_pressure_plate',
   71: 'iron_door',
+  72: 'oak_pressure_plate',
+  75: 'redstone_torch',
+  76: 'redstone_torch',
+  77: 'stone_button',
+  78: 'snow',
   79: 'ice',
   80: 'snow_block',
+  81: 'cactus',
   82: 'clay',
+  83: 'sugar_cane',
   85: 'oak_fence',
   86: 'pumpkin',
   87: 'netherrack',
   88: 'soul_sand',
   89: 'glowstone',
   91: 'carved_pumpkin',
+  93: 'repeater',
+  94: 'repeater',
   95: 'white_stained_glass',
   96: 'oak_trapdoor',
   98: 'stone_bricks',
@@ -585,12 +619,25 @@ const LEGACY_ID_MAP: Record<number, string> = {
   126: 'oak_slab',
   128: 'sandstone_stairs',
   129: 'emerald_ore',
+  130: 'ender_chest',
+  131: 'tripwire_hook',
+  132: 'tripwire',
   133: 'emerald_block',
   134: 'spruce_stairs',
   135: 'birch_stairs',
   136: 'jungle_stairs',
+  138: 'beacon',
   139: 'cobblestone_wall',
+  143: 'oak_button',
+  145: 'anvil',
+  146: 'trapped_chest',
+  147: 'light_weighted_pressure_plate',
+  148: 'heavy_weighted_pressure_plate',
+  149: 'comparator',
+  150: 'comparator',
+  151: 'daylight_detector',
   152: 'redstone_block',
+  154: 'hopper',
   155: 'quartz_block',
   156: 'quartz_stairs',
   159: 'terracotta',
@@ -608,6 +655,7 @@ const LEGACY_ID_MAP: Record<number, string> = {
   172: 'terracotta',
   173: 'coal_block',
   174: 'packed_ice',
+  175: 'sunflower',
   179: 'red_sandstone',
   180: 'red_sandstone_stairs',
   181: 'red_sandstone_slab',
@@ -1089,23 +1137,119 @@ export async function parseSchematicData(
 
           if (blockId === 0) continue;
 
-          const typeName = LEGACY_ID_MAP[blockId] || 'stone';
-          let facing: 'north' | 'south' | 'east' | 'west' | undefined = undefined;
-          let half: 'bottom' | 'top' | undefined = undefined;
+          let actualName = LEGACY_ID_MAP[blockId] || 'stone';
+          const legacyProps: Record<string, string> = {};
 
-          if (typeName.endsWith('stairs')) {
+          // Colors for colored blocks (wool, carpet, stained_glass, stained_glass_pane, concrete, terracotta)
+          const COLOR_NAMES = [
+            'white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray',
+            'light_gray', 'cyan', 'purple', 'blue', 'brown', 'green', 'red', 'black'
+          ];
+
+          if (blockId === 35) actualName = `${COLOR_NAMES[meta & 0x0f]}_wool`;
+          else if (blockId === 171) actualName = `${COLOR_NAMES[meta & 0x0f]}_carpet`;
+          else if (blockId === 95) actualName = `${COLOR_NAMES[meta & 0x0f]}_stained_glass`;
+          else if (blockId === 160) actualName = `${COLOR_NAMES[meta & 0x0f]}_stained_glass_pane`;
+          else if (blockId === 251) actualName = `${COLOR_NAMES[meta & 0x0f]}_concrete`;
+          else if (blockId === 252) actualName = `${COLOR_NAMES[meta & 0x0f]}_concrete_powder`;
+          else if (blockId === 159) actualName = `${COLOR_NAMES[meta & 0x0f]}_terracotta`;
+          else if (blockId === 18) {
+            const leafTypes = ['oak_leaves', 'spruce_leaves', 'birch_leaves', 'jungle_leaves'];
+            actualName = leafTypes[meta & 0x03] || 'oak_leaves';
+          } else if (blockId === 161) {
+            const leafTypes2 = ['acacia_leaves', 'dark_oak_leaves'];
+            actualName = leafTypes2[meta & 0x01] || 'acacia_leaves';
+          } else if (blockId === 17) {
+            const logTypes = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log'];
+            actualName = logTypes[meta & 0x03] || 'oak_log';
+            const axisDir = (meta >> 2) & 0x03;
+            legacyProps.axis = axisDir === 1 ? 'x' : axisDir === 2 ? 'z' : 'y';
+          } else if (blockId === 162) {
+            const logTypes2 = ['acacia_log', 'dark_oak_log'];
+            actualName = logTypes2[meta & 0x01] || 'acacia_log';
+            const axisDir = (meta >> 2) & 0x03;
+            legacyProps.axis = axisDir === 1 ? 'x' : axisDir === 2 ? 'z' : 'y';
+          } else if (blockId === 175) {
+            // Double plants (sunflower, lilac, tall_grass, large_fern, rose_bush, peony)
+            const isTop = (meta & 0x08) !== 0;
+            const flowerNames = ['sunflower', 'lilac', 'tall_grass', 'large_fern', 'rose_bush', 'peony'];
+            if (isTop) {
+              const prevIdx = idx - 1 - (width * length);
+              let flowerType = 'peony';
+              if (y > 0 && prevIdx >= 0 && rawBlocks[prevIdx] === 175) {
+                const bottomMeta = rawData[prevIdx] & 0x07;
+                flowerType = flowerNames[bottomMeta] || 'peony';
+              }
+              actualName = flowerType;
+              legacyProps.half = 'upper';
+            } else {
+              actualName = flowerNames[meta & 0x07] || 'peony';
+              legacyProps.half = 'lower';
+            }
+          } else if (blockId === 26) {
+            // Bed
+            actualName = 'red_bed';
             const dir = meta & 0x03;
-            if (dir === 0) facing = 'east';
-            else if (dir === 1) facing = 'west';
-            else if (dir === 2) facing = 'south';
-            else if (dir === 3) facing = 'north';
-            half = (meta & 0x04) !== 0 ? 'top' : 'bottom';
+            legacyProps.facing = dir === 0 ? 'south' : dir === 1 ? 'west' : dir === 2 ? 'north' : 'east';
+            legacyProps.part = (meta & 0x08) !== 0 ? 'head' : 'foot';
+          } else if (blockId === 77 || blockId === 143) {
+            // Buttons
+            actualName = blockId === 77 ? 'stone_button' : 'oak_button';
+            const dir = meta & 0x07;
+            if (dir === 0) {
+              legacyProps.face = 'ceiling';
+              legacyProps.facing = 'north';
+            } else if (dir === 1) {
+              legacyProps.face = 'wall';
+              legacyProps.facing = 'east';
+            } else if (dir === 2) {
+              legacyProps.face = 'wall';
+              legacyProps.facing = 'west';
+            } else if (dir === 3) {
+              legacyProps.face = 'wall';
+              legacyProps.facing = 'south';
+            } else if (dir === 4) {
+              legacyProps.face = 'wall';
+              legacyProps.facing = 'north';
+            } else {
+              legacyProps.face = 'floor';
+              legacyProps.facing = 'north';
+            }
+            legacyProps.powered = (meta & 0x08) !== 0 ? 'true' : 'false';
+          } else if (blockId === 33 || blockId === 29) {
+            // Pistons
+            actualName = blockId === 29 ? 'sticky_piston' : 'piston';
+            const dir = meta & 0x07;
+            const dirs = ['down', 'up', 'north', 'south', 'west', 'east'];
+            legacyProps.facing = dirs[dir] || 'up';
+            legacyProps.extended = (meta & 0x08) !== 0 ? 'true' : 'false';
+          } else if (blockId === 96 || blockId === 167) {
+            // Trapdoors
+            actualName = blockId === 167 ? 'iron_trapdoor' : 'oak_trapdoor';
+            const dir = meta & 0x03;
+            legacyProps.facing = dir === 0 ? 'north' : dir === 1 ? 'south' : dir === 2 ? 'west' : 'east';
+            legacyProps.open = (meta & 0x04) !== 0 ? 'true' : 'false';
+            legacyProps.half = (meta & 0x08) !== 0 ? 'top' : 'bottom';
+          } else if (blockId === 59) {
+            // Wheat
+            actualName = 'wheat';
+            legacyProps.age = String(meta & 0x07);
+          } else if (blockId === 78) {
+            // Snow
+            actualName = 'snow';
+            legacyProps.layers = String((meta & 0x07) + 1);
+          } else if (blockId === 65) {
+            // Ladder
+            actualName = 'ladder';
+            const dir = meta & 0x07;
+            legacyProps.facing = dir === 2 ? 'north' : dir === 3 ? 'south' : dir === 4 ? 'west' : dir === 5 ? 'east' : 'north';
+          } else if (actualName.endsWith('stairs')) {
+            const dir = meta & 0x03;
+            legacyProps.facing = dir === 0 ? 'east' : dir === 1 ? 'west' : dir === 2 ? 'south' : 'north';
+            legacyProps.half = (meta & 0x04) !== 0 ? 'top' : 'bottom';
           }
 
-          const legacyProps: Record<string, string> = {};
-          if (facing) legacyProps.facing = facing;
-          if (half) legacyProps.half = half;
-          const parsed = parseBlockStateString(`minecraft:${typeName}`, legacyProps);
+          const parsed = parseBlockStateString(`minecraft:${actualName}`, legacyProps);
 
           blocks.push({
             position: centerCoordinate(x, y, z, halfWidth),

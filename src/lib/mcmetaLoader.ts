@@ -694,6 +694,30 @@ export function isFullOpaqueCube(blockTypeString: string): boolean {
 
   // Non-full or transparent / translucent / cutout blocks
   if (
+    clean === 'snow' ||
+    (clean.includes('snow') && clean !== 'snow_block') ||
+    clean.includes('farmland') ||
+    clean.includes('dirt_path') ||
+    clean.includes('grass_path') ||
+    clean.includes('lectern') ||
+    clean.includes('enchanting_table') ||
+    clean.includes('end_portal_frame') ||
+    clean.includes('piston') ||
+    clean.includes('shulker_box') ||
+    clean.includes('cocoa') ||
+    clean.includes('fire') ||
+    clean.includes('wheat') ||
+    clean.includes('carrot') ||
+    clean.includes('potato') ||
+    clean.includes('beetroot') ||
+    clean.includes('crop') ||
+    clean.includes('stem') ||
+    clean.includes('berry') ||
+    clean.includes('pickle') ||
+    clean.includes('egg') ||
+    clean.includes('chorus') ||
+    clean.includes('stonecutter') ||
+    clean.includes('grindstone') ||
     clean.includes('glass') ||
     clean.includes('leaves') ||
     clean === 'ice' ||
@@ -816,7 +840,7 @@ export function isTranslucentBlock(blockTypeString: string): boolean {
     clean === 'slime' ||
     clean === 'honey_block' ||
     clean === 'honey' ||
-    (clean.includes('stained_glass') && !clean.includes('pane')) ||
+    clean.includes('stained_glass') ||
     clean === 'tinted_glass'
   );
 }
@@ -1171,6 +1195,84 @@ export function getRawBlockQuads(
       if (!props.open) props.open = 'false';
     }
 
+    // 7. Auto-Heal: Betten (Beds)
+    if (name.includes('bed')) {
+      if (!props.facing) props.facing = 'north';
+      if (!props.part) {
+        const f = props.facing;
+        const front =
+          f === 'north' ? neighborSolidMap.northBlock :
+          f === 'south' ? neighborSolidMap.southBlock :
+          f === 'east' ? neighborSolidMap.eastBlock :
+          neighborSolidMap.westBlock;
+        const back =
+          f === 'north' ? neighborSolidMap.southBlock :
+          f === 'south' ? neighborSolidMap.northBlock :
+          f === 'east' ? neighborSolidMap.westBlock :
+          neighborSolidMap.eastBlock;
+
+        if (front && front.includes('bed')) {
+          props.part = 'foot';
+        } else if (back && back.includes('bed')) {
+          props.part = 'head';
+        } else {
+          props.part = 'foot';
+        }
+      }
+    }
+
+    // 8. Auto-Heal: Tall Plants (peony, rose_bush, sunflower, lilac, tall_grass, large_fern, pitcher_plant)
+    const isTallPlant =
+      name === 'peony' ||
+      name === 'rose_bush' ||
+      name === 'sunflower' ||
+      name === 'lilac' ||
+      name === 'tall_grass' ||
+      name === 'large_fern' ||
+      name === 'pitcher_plant';
+
+    if (isTallPlant) {
+      if (props.half === 'bottom') props.half = 'lower';
+      if (props.half === 'top') props.half = 'upper';
+      if (!props.half) {
+        if (neighborSolidMap.upBlock?.includes(name)) {
+          props.half = 'lower';
+        } else if (neighborSolidMap.downBlock?.includes(name)) {
+          props.half = 'upper';
+        } else {
+          props.half = 'lower';
+        }
+      }
+    }
+
+    // 9. Auto-Heal: Crops (wheat, carrots, potatoes, beetroots, sweet_berry_bush, cocoa)
+    if (name === 'wheat' || name === 'carrots' || name === 'potatoes') {
+      if (!props.age) props.age = '7';
+    } else if (name === 'beetroots' || name === 'sweet_berry_bush') {
+      if (!props.age) props.age = '3';
+    } else if (name === 'cocoa') {
+      if (!props.age) props.age = '2';
+    }
+
+    // 10. Auto-Heal: Knöpfe (Buttons)
+    if (name.includes('button')) {
+      if (!props.face) {
+        props.face = props.facing === 'up' ? 'floor' : props.facing === 'down' ? 'ceiling' : 'wall';
+      }
+      if (!props.facing || props.facing === 'up' || props.facing === 'down') {
+        if (props.face === 'wall') {
+          if (neighborSolidMap.south) props.facing = 'north';
+          else if (neighborSolidMap.north) props.facing = 'south';
+          else if (neighborSolidMap.east) props.facing = 'west';
+          else if (neighborSolidMap.west) props.facing = 'east';
+          else props.facing = 'north';
+        } else {
+          props.facing = 'north';
+        }
+      }
+      if (!props.powered) props.powered = 'false';
+    }
+
     const def = (mcmeta.blockDefinitions[name] ||
       mcmeta.blockDefinitions[`${name}_block`] ||
       mcmeta.blockDefinitions[name.replace(/^waxed_/, '')] ||
@@ -1211,11 +1313,17 @@ export function getRawBlockQuads(
             const allowed = v.split('|').map((s) => s.trim());
             const cur = (props[k] ?? '').toLowerCase().trim();
 
-            if (allowed.includes(cur)) {
-              score++;
-            } else if (allowed.includes('true') && cur === 'low') {
-              score++;
-            } else if (allowed.includes('low') && cur === 'true') {
+            const isHalfMatch =
+              k === 'half' &&
+              (((cur === 'bottom' || cur === 'lower') && (allowed.includes('bottom') || allowed.includes('lower'))) ||
+                ((cur === 'top' || cur === 'upper') && (allowed.includes('top') || allowed.includes('upper'))));
+
+            if (
+              allowed.includes(cur) ||
+              isHalfMatch ||
+              (allowed.includes('true') && cur === 'low') ||
+              (allowed.includes('low') && cur === 'true')
+            ) {
               score++;
             } else {
               matches = false;
@@ -1234,29 +1342,23 @@ export function getRawBlockQuads(
         }
 
         if (bestMatch) {
-          const arr = Array.isArray(bestMatch) ? bestMatch : [bestMatch];
-          for (const item of arr) {
-            if (item && item.model) appliedModels.push(item);
-          }
+          const chosen = Array.isArray(bestMatch) ? bestMatch[0] : bestMatch;
+          if (chosen && chosen.model) appliedModels.push(chosen);
         }
       }
 
       if (def.multipart && Array.isArray(def.multipart)) {
         for (const part of def.multipart) {
           if (!part.when || evaluateMultipartCondition(part.when, props)) {
-            const arr = Array.isArray(part.apply) ? part.apply : [part.apply];
-            for (const item of arr) {
-              if (item && item.model) appliedModels.push(item);
-            }
+            const chosen = Array.isArray(part.apply) ? part.apply[0] : part.apply;
+            if (chosen && chosen.model) appliedModels.push(chosen);
           }
         }
 
         if (appliedModels.length === 0 && def.multipart.length > 0) {
           const firstPart = def.multipart[0];
-          const arr = Array.isArray(firstPart.apply) ? firstPart.apply : [firstPart.apply];
-          for (const item of arr) {
-            if (item && item.model) appliedModels.push(item);
-          }
+          const chosen = Array.isArray(firstPart.apply) ? firstPart.apply[0] : firstPart.apply;
+          if (chosen && chosen.model) appliedModels.push(chosen);
         }
       }
     }
@@ -1274,7 +1376,7 @@ export function getRawBlockQuads(
 
     for (const item of appliedModels) {
       const modelId = item.model;
-      const rotX = item.x || 0;
+      const rotX = item.x ? -item.x : 0;
       const rotY = item.y ? -item.y : 0;
       const uvlock = Boolean(item.uvlock);
 
@@ -1714,19 +1816,35 @@ export function getRawBlockQuads(
             }
           }
 
-          let uvCorners: [number, number][] = [
-            [u1, v1],
-            [u2, v1],
-            [u2, v2],
-            [u1, v2],
-          ];
-
-          if (uvRot === 90) {
-            uvCorners = [uvCorners[3], uvCorners[0], uvCorners[1], uvCorners[2]];
-          } else if (uvRot === 180) {
-            uvCorners = [uvCorners[2], uvCorners[3], uvCorners[0], uvCorners[1]];
-          } else if (uvRot === 270) {
-            uvCorners = [uvCorners[1], uvCorners[2], uvCorners[3], uvCorners[0]];
+          let uvCorners: [number, number][];
+          if (faceName === 'up') {
+            uvCorners = [
+              [u1, v1],
+              [u1, v2],
+              [u2, v2],
+              [u2, v1],
+            ];
+            if (uvRot === 90) {
+              uvCorners = [uvCorners[1], uvCorners[2], uvCorners[3], uvCorners[0]];
+            } else if (uvRot === 180) {
+              uvCorners = [uvCorners[2], uvCorners[3], uvCorners[0], uvCorners[1]];
+            } else if (uvRot === 270) {
+              uvCorners = [uvCorners[3], uvCorners[0], uvCorners[1], uvCorners[2]];
+            }
+          } else {
+            uvCorners = [
+              [u1, v1],
+              [u2, v1],
+              [u2, v2],
+              [u1, v2],
+            ];
+            if (uvRot === 90) {
+              uvCorners = [uvCorners[3], uvCorners[0], uvCorners[1], uvCorners[2]];
+            } else if (uvRot === 180) {
+              uvCorners = [uvCorners[2], uvCorners[3], uvCorners[0], uvCorners[1]];
+            } else if (uvRot === 270) {
+              uvCorners = [uvCorners[1], uvCorners[2], uvCorners[3], uvCorners[0]];
+            }
           }
 
           const hasTint = faceData.tintindex !== undefined && faceData.tintindex !== -1;
@@ -1825,8 +1943,10 @@ export function getRawBlockQuads(
             quadNorm.push(nm);
 
             const [cu, cv] = uvCorners[c] || [0, 0];
-            const U = (px + (cu / 16) * pw) / atlasWidth;
-            const V = (py + (cv / 16) * ph) / atlasHeight;
+            const frameWidth = pw > ph && ph > 0 ? ph : pw;
+            const frameHeight = ph > pw && pw > 0 ? pw : ph;
+            const U = (px + (cu / 16) * frameWidth) / atlasWidth;
+            const V = (py + (cv / 16) * frameHeight) / atlasHeight;
             quadUv.push([U, V]);
           }
 
