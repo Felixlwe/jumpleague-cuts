@@ -77,13 +77,22 @@ export function AutoModuleProcessor() {
         // 3. If module still has a placeholder or ID name, query the Vision AI endpoint
         if (needsAutoNaming(targetMod)) {
           try {
+            const storedKey =
+              typeof window !== 'undefined'
+                ? localStorage.getItem('jl_gemini_api_key')
+                : null;
+
             const res = await fetch('/api/ai-name-module', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                ...(storedKey ? { 'x-gemini-api-key': storedKey } : {}),
+              },
               body: JSON.stringify({
                 compositeDataUrl,
                 frequentBlocks: getFrequentBlockNames(blocks),
                 dimensions: targetMod.dimensions,
+                apiKey: storedKey || undefined,
               }),
             });
 

@@ -34,7 +34,7 @@ export function needsAutoNaming(
   // 3. If name is only digits or short technical alphanumeric string like "1001" or "E-11"
   if (/^[a-z0-9_-]{1,6}$/i.test(rawName)) return true;
 
-  // 4. Old placeholder names: Parkour, Sprung, Pfad, Gipfel, Unbenannt, Modul, Unnamed, Litematica Modul
+  // 4. Old placeholder names & generic fallback names that need true AI Vision recognition
   const genericPlaceholders = [
     'parkour',
     'sprung',
@@ -49,6 +49,47 @@ export function needsAutoNaming(
     'schematic',
     'nbt modul',
     'default',
+    // Fallback heuristic names from previous run:
+    'abenteuer insel',
+    'kirschblüten pagode',
+    'kirschblüten schrein',
+    'karmesin wald',
+    'basalt delta',
+    'vulkan festung',
+    'nether festung',
+    'wirrwald insel',
+    'korallen riff',
+    'atlantis turm',
+    'ozean tempel',
+    'wüsten obelisk',
+    'mesa canyon',
+    'wüsten oase',
+    'frost nadel',
+    'eis gletscher',
+    'end schiff',
+    'end stadt',
+    'kristall höhle',
+    'industrie kran',
+    'steampunk fabrik',
+    'goldener bienenstock',
+    'schleim grotte',
+    'pilz insel',
+    'magie turm',
+    'alte bibliothek',
+    'mangroven sumpf',
+    'bambus tempel',
+    'dschungel baumhaus',
+    'dschungel ruine',
+    'finsterwald anwesen',
+    'alte windmühle',
+    'historischer bauernhof',
+    'kerker turm',
+    'burg mauer',
+    'ritter burg',
+    'ausguck turm',
+    'holzfäller hütte',
+    'himmels turm',
+    'hänge brücke',
   ];
   if (genericPlaceholders.some((ph) => cleanName === ph || cleanName.startsWith(ph + ' '))) {
     return true;
@@ -197,7 +238,7 @@ export async function captureMultiAngleComposite(
   const size = new THREE.Vector3();
   box.getSize(size);
   const maxDim = Math.max(size.x, size.y, size.z, 1);
-  const dist = maxDim * 1.45;
+  const dist = maxDim * 1.25;
 
   // 4. Temporary Perspective Camera
   const tempCam = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);

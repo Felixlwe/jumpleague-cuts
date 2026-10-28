@@ -14,6 +14,8 @@ import {
   Focus,
   X,
   Upload,
+  Sparkles,
+  ExternalLink,
 } from 'lucide-react';
 import { useJLStore } from '@/store/useJLStore';
 import {
@@ -49,6 +51,56 @@ export const AdminReviewPanel: React.FC = () => {
 
   const [isAdminUploading, setIsAdminUploading] = useState(false);
   const [adminUploadMsg, setAdminUploadMsg] = useState<string | null>(null);
+
+  const [geminiKeyInput, setGeminiKeyInput] = useState('');
+  const [hasServerGeminiKey, setHasServerGeminiKey] = useState(false);
+  const [isSavingGeminiKey, setIsSavingGeminiKey] = useState(false);
+  const [geminiKeyMsg, setGeminiKeyMsg] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('jl_gemini_api_key') || '';
+      setGeminiKeyInput(saved);
+    }
+    fetch('/api/admin')
+      .then((res) => res.json())
+      .then((data: { hasGeminiKey?: boolean }) => {
+        if (data?.hasGeminiKey) setHasServerGeminiKey(true);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSaveGeminiKey = async () => {
+    setIsSavingGeminiKey(true);
+    setGeminiKeyMsg(null);
+    try {
+      const trimmed = geminiKeyInput.trim();
+      if (typeof window !== 'undefined') {
+        if (trimmed) {
+          localStorage.setItem('jl_gemini_api_key', trimmed);
+        } else {
+          localStorage.removeItem('jl_gemini_api_key');
+        }
+      }
+      const res = await fetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save_gemini_key',
+          geminiApiKey: trimmed,
+        }),
+      });
+      if (res.ok) {
+        setHasServerGeminiKey(Boolean(trimmed));
+        setGeminiKeyMsg(trimmed ? 'Gemini API-Key gespeichert & aktiv!' : 'API-Key entfernt.');
+        setTimeout(() => setGeminiKeyMsg(null), 3500);
+      }
+    } catch {
+      setGeminiKeyMsg('Fehler beim Speichern.');
+    } finally {
+      setIsSavingGeminiKey(false);
+    }
+  };
 
   const handleAdminSchematicUpload = async (
     e: React.ChangeEvent<HTMLInputElement>
@@ -211,6 +263,64 @@ export const AdminReviewPanel: React.FC = () => {
             {adminUploadMsg}
           </div>
         )}
+
+        {/* Gemini Vision KI Settings Card */}
+        <div className="rounded-xl border border-purple-500/30 bg-purple-950/20 p-2.5 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 font-mono text-[11px] font-bold text-purple-300">
+              <Sparkles className="h-3.5 w-3.5 text-purple-400" />
+              <span>Vision KI (Gemini 2.0 Flash)</span>
+            </div>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[9px] font-bold font-mono tracking-wider ${
+                hasServerGeminiKey || Boolean(geminiKeyInput.trim())
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+              }`}
+            >
+              {hasServerGeminiKey || Boolean(geminiKeyInput.trim())
+                ? 'AKTIV'
+                : 'KEY FEHLT'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <input
+              type="password"
+              placeholder="Google Gemini API-Key (AIzaSy...)"
+              value={geminiKeyInput}
+              onChange={(e) => setGeminiKeyInput(e.target.value)}
+              className="flex-1 rounded-lg border border-white/10 bg-zinc-950/80 px-2.5 py-1 text-[11px] font-mono text-zinc-100 placeholder:text-zinc-600 focus:border-purple-400 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={handleSaveGeminiKey}
+              disabled={isSavingGeminiKey}
+              className="rounded-lg bg-purple-600 hover:bg-purple-500 px-2.5 py-1 text-[11px] font-bold text-white transition disabled:opacity-50"
+            >
+              {isSavingGeminiKey ? '...' : 'Speichern'}
+            </button>
+          </div>
+
+          {geminiKeyMsg && (
+            <div className="text-[10px] font-mono text-emerald-400">
+              {geminiKeyMsg}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between text-[10px] text-zinc-400">
+            <span>Erkennt SpongeBob, Charaktere & Skulpturen.</span>
+            <a
+              href="https://aistudio.google.com/app/apikey"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-cyan-400 hover:underline"
+            >
+              <span>Gratis Key holen</span>
+              <ExternalLink className="h-2.5 w-2.5" />
+            </a>
+          </div>
+        </div>
 
         {/* Status Tabs */}
         <div className="grid grid-cols-3 gap-1.5">

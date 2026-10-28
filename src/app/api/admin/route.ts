@@ -18,7 +18,10 @@ import {
  */
 export async function GET(req: NextRequest) {
   const isAuth = verifyAdminRequest(req);
-  return NextResponse.json({ authenticated: isAuth });
+  return NextResponse.json({
+    authenticated: isAuth,
+    hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+  });
 }
 
 /**
@@ -163,6 +166,41 @@ export async function POST(req: NextRequest) {
       }
       const success = await deleteCutFromSupabase(cutId);
       return NextResponse.json({ success });
+    }
+
+    // 9. Admin Action: save_gemini_key
+    if (action === 'save_gemini_key') {
+      const geminiApiKey = String(body.geminiApiKey || '').trim();
+      process.env.GEMINI_API_KEY = geminiApiKey;
+
+      // Update .env.local file if possible
+      try {
+        const fs = await import('fs/promises');
+        const path = await import('path');
+        const envPath = path.join(process.cwd(), '.env.local');
+        let envContent = '';
+        try {
+          envContent = await fs.readFile(envPath, 'utf8');
+        } catch {
+          envContent = '';
+        }
+        if (envContent.includes('GEMINI_API_KEY=')) {
+          envContent = envContent.replace(
+            /GEMINI_API_KEY=.*(\r?\n|$)/,
+            `GEMINI_API_KEY=${geminiApiKey}\n`
+          );
+        } else {
+          envContent += `\nGEMINI_API_KEY=${geminiApiKey}\n`;
+        }
+        await fs.writeFile(envPath, envContent.trim() + '\n', 'utf8');
+      } catch (fsErr) {
+        console.warn('[Admin] Could not persist GEMINI_API_KEY to .env.local:', fsErr);
+      }
+
+      return NextResponse.json({
+        success: true,
+        activeKeySet: Boolean(geminiApiKey),
+      });
     }
 
     return NextResponse.json(
