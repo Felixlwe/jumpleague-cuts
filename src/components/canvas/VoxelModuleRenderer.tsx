@@ -20,6 +20,11 @@ import {
   getAtlasMaterial,
   getTranslucentAtlasMaterial,
 } from '@/lib/mcmetaLoader';
+import {
+  needsAutoNaming,
+  getFrequentBlockNames,
+  captureMultiAngleComposite,
+} from '@/lib/moduleCapture';
 
 /**
  * Calculates optimal camera position and look target to frame the entire module
@@ -1182,7 +1187,7 @@ export const BlockHighlightMesh: React.FC<{
  * Combines high-performance chunk-merged mesh rendering with Minecraft Spectator controls.
  */
 export const VoxelModuleRenderer: React.FC = () => {
-  const { gl } = useThree();
+  const { gl, scene, camera } = useThree();
   const modules = useJLStore((s) => s.modules);
   const selectedModuleId = useJLStore((s) => s.selectedModuleId);
   const cuts = useJLStore((s) => s.cuts);
@@ -1203,6 +1208,9 @@ export const VoxelModuleRenderer: React.FC = () => {
   const updateDraftMidPoint = useJLStore((s) => s.updateDraftMidPoint);
   const loadModuleBlocks = useJLStore((s) => s.loadModuleBlocks);
   const updateModuleThumbnail = useJLStore((s) => s.updateModuleThumbnail);
+  const updateModuleNameAndThumbnail = useJLStore(
+    (s) => s.updateModuleNameAndThumbnail
+  );
 
   const hasCapturedRef = useRef<Record<string, boolean>>({});
 
@@ -1275,31 +1283,77 @@ export const VoxelModuleRenderer: React.FC = () => {
     return buildMergedModuleGeometry(currentModule.blocks, mcmeta);
   }, [mcmeta, currentModule?.blocks]);
 
-  // Auto-capture 3D screenshot once geometry is rendered if module has no thumbnail
+  // Automated 4-angle Vision AI naming and thumbnail capture in 3D-Viewer
   useEffect(() => {
-    if (!currentModule || !mergedResult || currentModule.thumbnailUrl) return;
+    if (!currentModule || !mergedResult || !mcmeta) return;
+    const shouldName = needsAutoNaming(currentModule);
+    const shouldThumb = !currentModule.thumbnailUrl;
+    if (!shouldName && !shouldThumb) return;
     if (hasCapturedRef.current[currentModule.id]) return;
 
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       try {
-        if (!gl?.domElement) return;
-        const dataUrl = gl.domElement.toDataURL('image/webp', 0.65);
-        if (dataUrl && dataUrl.length > 100) {
-          hasCapturedRef.current[currentModule.id] = true;
-          void updateModuleThumbnail(currentModule.id, dataUrl);
+        hasCapturedRef.current[currentModule.id] = true;
+
+        const captureResult = await captureMultiAngleComposite({
+          mergedResult,
+          mcmeta,
+          blocks: currentModule.blocks,
+          existingGl: gl,
+          existingScene: scene,
+          userCamera: camera,
+        });
+
+        if (!captureResult) return;
+
+        const { compositeDataUrl, thumbnailDataUrl } = captureResult;
+        let aiName: string | undefined = undefined;
+
+        if (shouldName) {
+          try {
+            const res = await fetch('/api/ai-name-module', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                compositeDataUrl,
+                frequentBlocks: getFrequentBlockNames(currentModule.blocks),
+                dimensions: currentModule.dimensions,
+              }),
+            });
+            if (res.ok) {
+              const data = (await res.json()) as { name?: string };
+              if (data?.name && typeof data.name === 'string') {
+                aiName = data.name.trim();
+              }
+            }
+          } catch (aiErr) {
+            console.warn('[VoxelModuleRenderer] AI naming error:', aiErr);
+          }
         }
+
+        await updateModuleNameAndThumbnail(
+          currentModule.id,
+          aiName,
+          shouldThumb ? thumbnailDataUrl : undefined
+        );
       } catch (err) {
-        console.warn('[Screenshot] Auto-capture failed:', err);
+        console.warn('[VoxelModuleRenderer] Auto-capture failed:', err);
       }
     }, 450);
 
     return () => clearTimeout(timer);
   }, [
     currentModule?.id,
+    currentModule?.name,
     currentModule?.thumbnailUrl,
+    currentModule?.blocks,
+    currentModule?.dimensions,
     mergedResult,
+    mcmeta,
     gl,
-    updateModuleThumbnail,
+    scene,
+    camera,
+    updateModuleNameAndThumbnail,
   ]);
 
   // Omnidirectional Voxel Raycasting: determines the clicked/hovered voxel coordinate

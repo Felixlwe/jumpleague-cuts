@@ -32,6 +32,7 @@ import { parseSchematicFile } from '@/lib/schematicParser';
 import { AdminAuthModal } from '@/components/hud/AdminAuthModal';
 import { CreateModuleModal } from '@/components/hud/CreateModuleModal';
 import { HomeCutsSidebar } from '@/components/home/HomeCutsSidebar';
+import { AutoModuleProcessor } from '@/components/AutoModuleProcessor';
 
 type TabCategory = 'ALL' | ModuleDifficulty;
 
@@ -544,6 +545,8 @@ export default function ModuleHubPage() {
         backgroundAttachment: 'fixed',
       }}
     >
+      {/* Invisible Background AI Module Namer & Thumbnail Generator */}
+      {isMounted && <AutoModuleProcessor />}
 
       {/* Floating Admin Controls in the top-right corner on the checkered background */}
       <div className="absolute top-4 right-4 z-50 flex flex-col items-end gap-2">

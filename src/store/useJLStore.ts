@@ -21,6 +21,7 @@ import {
   bulkSoftDeleteModulesInSupabase,
   bulkRestoreModulesInSupabase,
   updateModuleThumbnailInSupabase,
+  updateModuleNameAndThumbnailInSupabase,
 } from '@/lib/supabase';
 import {
   getLocalDeletedModuleIds,
@@ -165,6 +166,11 @@ export interface JLStoreState {
   updateModuleThumbnail: (
     moduleId: string,
     thumbnailUrl: string
+  ) => Promise<void>;
+  updateModuleNameAndThumbnail: (
+    moduleId: string,
+    name?: string,
+    thumbnailUrl?: string
   ) => Promise<void>;
   deleteModule: (moduleId: string) => Promise<void> | void;
   hideDefaultModules: () => Promise<void>;
@@ -461,6 +467,27 @@ export const useJLStore = create<JLStoreState>()(
           }),
         }));
         await updateModuleThumbnailInSupabase(moduleId, thumbnailUrl);
+      },
+
+      updateModuleNameAndThumbnail: async (moduleId: string, name?: string, thumbnailUrl?: string) => {
+        const cleanId = moduleId.trim().replace(/^#+/, '');
+        if (thumbnailUrl) {
+          saveLocalThumbnail(moduleId, thumbnailUrl);
+        }
+        set((state) => ({
+          modules: state.modules.map((m) => {
+            const mClean = m.id.replace(/^#+/, '');
+            if (m.id === moduleId || mClean === cleanId || m.id === `#${cleanId}`) {
+              return {
+                ...m,
+                name: name && name.trim() ? name.trim() : m.name,
+                thumbnailUrl: thumbnailUrl || m.thumbnailUrl,
+              };
+            }
+            return m;
+          }),
+        }));
+        await updateModuleNameAndThumbnailInSupabase(moduleId, name, thumbnailUrl);
       },
 
       deleteModule: async (moduleId) => {

@@ -407,6 +407,45 @@ export async function updateModuleThumbnailInSupabase(
 }
 
 /**
+ * Safely updates both name and/or thumbnail URL for a module in Supabase.
+ */
+export async function updateModuleNameAndThumbnailInSupabase(
+  moduleId: string,
+  name?: string,
+  thumbnailUrl?: string
+): Promise<boolean> {
+  if (!supabase) return false;
+
+  try {
+    const payload: Record<string, unknown> = {};
+    if (name && name.trim().length > 0) {
+      payload.name = name.trim();
+    }
+    if (thumbnailUrl && thumbnailUrl.trim().length > 0) {
+      payload.thumbnail_url = thumbnailUrl;
+    }
+    if (Object.keys(payload).length === 0) {
+      return true;
+    }
+
+    const cleanId = moduleId.trim().replace(/^#+/, '');
+    const { error } = await supabase
+      .from('modules')
+      .update(payload)
+      .in('id', [moduleId, cleanId, `#${cleanId}`]);
+
+    if (error) {
+      console.warn('[Supabase] Could not update module name/thumbnail in database:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] Exception updating module name/thumbnail:', err);
+    return false;
+  }
+}
+
+/**
  * Loads a single module with its full 3D voxel blocks array from Supabase by ID.
  */
 export async function fetchModuleById(id: string): Promise<JLModule | null> {
