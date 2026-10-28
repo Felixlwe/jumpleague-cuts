@@ -27,7 +27,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { CutStatus, MovementTech, Cut } from '@/types/jumpleague';
 import { parseSchematicFile } from '@/lib/schematicParser';
-import { parseYouTubeEmbedUrl } from '@/lib/security';
+import { CutVideoPlayer } from './CutVideoPlayer';
 
 export const AdminReviewPanel: React.FC = () => {
   const router = useRouter();
@@ -485,40 +485,10 @@ export const AdminReviewPanel: React.FC = () => {
             </div>
 
             <div className="relative aspect-video w-full bg-zinc-950">
-              {selectedCut.videoUrl ? (
-                (() => {
-                  const ytEmbed = parseYouTubeEmbedUrl(selectedCut.videoUrl);
-                  if (ytEmbed) {
-                    return (
-                      <iframe
-                        key={selectedCut.id}
-                        src={ytEmbed}
-                        title={selectedCut.name}
-                        className="h-full w-full"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                      />
-                    );
-                  }
-                  return (
-                    <video
-                      key={selectedCut.videoUrl}
-                      src={selectedCut.videoUrl}
-                      autoPlay
-                      loop
-                      muted
-                      controls
-                      playsInline
-                      className="h-full w-full object-cover"
-                    />
-                  );
-                })()
-              ) : (
-                <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 p-4 text-center">
-                  <Video className="h-6 w-6 text-zinc-600" />
-                  <span className="text-xs text-zinc-500">Kein Video-Beweis hinterlegt</span>
-                </div>
-              )}
+              <CutVideoPlayer
+                videoUrl={selectedCut.videoUrl}
+                title={selectedCut.name}
+              />
             </div>
           </div>
 
@@ -642,6 +612,21 @@ export const AdminReviewPanel: React.FC = () => {
                   updateCut(selectedCut.id, { description: e.target.value })
                 }
                 className="w-full rounded-xl border border-white/10 bg-zinc-900/80 p-2.5 text-xs text-zinc-100 focus:border-purple-400 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-purple-300">
+                Video-URL / Clip anpassen (YouTube, Streamable oder .mp4)
+              </label>
+              <input
+                type="text"
+                value={selectedCut.videoUrl.startsWith('data:') ? '(Lokale Datei gespeichert)' : selectedCut.videoUrl}
+                onChange={(e) =>
+                  updateCut(selectedCut.id, { videoUrl: e.target.value.trim() })
+                }
+                placeholder="https://... (z. B. YouTube oder Streamable)"
+                className="w-full rounded-xl border border-white/10 bg-zinc-900/80 px-3 py-1.5 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:border-purple-400 focus:outline-none"
               />
             </div>
 

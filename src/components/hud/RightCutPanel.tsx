@@ -22,7 +22,7 @@ import {
   MOVEMENT_TECH_CONFIG,
 } from '@/constants/jumpleagueConfig';
 import { CutDifficulty } from '@/types/jumpleague';
-import { parseYouTubeEmbedUrl } from '@/lib/security';
+import { CutVideoPlayer } from './CutVideoPlayer';
 
 type SortCriterion = 'TIME_SAVED' | 'DIFFICULTY';
 
@@ -220,40 +220,10 @@ export const RightCutPanel: React.FC = () => {
             </div>
 
             <div className="relative aspect-video w-full bg-zinc-950">
-              {selectedCut.videoUrl ? (
-                (() => {
-                  const ytEmbed = parseYouTubeEmbedUrl(selectedCut.videoUrl);
-                  if (ytEmbed) {
-                    return (
-                      <iframe
-                        key={selectedCut.id}
-                        src={ytEmbed}
-                        title={selectedCut.name}
-                        className="h-full w-full"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                      />
-                    );
-                  }
-                  return (
-                    <video
-                      key={selectedCut.videoUrl}
-                      src={selectedCut.videoUrl}
-                      autoPlay
-                      loop
-                      muted
-                      controls
-                      playsInline
-                      className="h-full w-full object-cover"
-                    />
-                  );
-                })()
-              ) : (
-                <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 p-4 text-center">
-                  <Video className="h-6 w-6 text-zinc-600" />
-                  <span className="text-xs text-zinc-500">Kein Video-Beweis hinterlegt</span>
-                </div>
-              )}
+              <CutVideoPlayer
+                videoUrl={selectedCut.videoUrl}
+                title={selectedCut.name}
+              />
 
               {/* Tactical Block Coordinate Overlay inside PiP Frame */}
               <div className="pointer-events-none absolute bottom-2 left-2 flex items-center gap-1.5 rounded-md bg-zinc-950/85 border border-white/15 px-2 py-0.5 font-mono text-[10px] text-zinc-200 backdrop-blur-md">

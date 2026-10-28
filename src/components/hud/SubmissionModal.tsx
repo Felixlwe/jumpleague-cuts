@@ -11,8 +11,10 @@ import {
   Upload,
   Link2,
   X,
+  Loader2,
 } from 'lucide-react';
 import { useJLStore } from '@/store/useJLStore';
+import { CutVideoPlayer } from './CutVideoPlayer';
 import {
   ALL_CUT_DIFFICULTIES,
   CUT_DIFFICULTY_CONFIG,
@@ -55,6 +57,7 @@ export const SubmissionModal: React.FC = () => {
   const [videoSourceType, setVideoSourceType] = useState<'URL' | 'FILE'>('URL');
   const [videoUrl, setVideoUrl] = useState('');
   const [localVideoName, setLocalVideoName] = useState<string | null>(null);
+  const [isProcessingVideo, setIsProcessingVideo] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submittedSuccess, setSubmittedSuccess] = useState(false);
 
@@ -65,9 +68,34 @@ export const SubmissionModal: React.FC = () => {
   const handleLocalFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const objectUrl = URL.createObjectURL(file);
-    setVideoUrl(objectUrl);
+
+    // Limit video size to 15MB
+    const MAX_FILE_SIZE = 15 * 1024 * 1024;
+    if (file.size > MAX_FILE_SIZE) {
+      setErrorMessage(
+        `Die Videodatei ist mit ${(file.size / (1024 * 1024)).toFixed(1)} MB zu groß (max. 15 MB). JumpLeague-Cuts sind typischerweise kurze 2–8 Sekunden Clips. Bitte komprimiere das Video oder nutze einen Link (z. B. Streamable oder YouTube).`
+      );
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setIsProcessingVideo(true);
+    setErrorMessage(null);
     setLocalVideoName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        setVideoUrl(result);
+      }
+      setIsProcessingVideo(false);
+    };
+    reader.onerror = () => {
+      setErrorMessage('Fehler beim Einlesen der Videodatei. Bitte versuche es erneut.');
+      setIsProcessingVideo(false);
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -105,11 +133,18 @@ export const SubmissionModal: React.FC = () => {
       return;
     }
 
-    // Video ist optional. Falls angegeben (URL), Format auf YouTube oder .mp4/.webm prüfen:
-    if (trimmedVideo && videoSourceType === 'URL') {
+    if (isProcessingVideo) {
+      setErrorMessage(
+        'Die Videodatei wird noch verarbeitet. Bitte warte einen kurzen Moment.'
+      );
+      return;
+    }
+
+    // Video ist optional. Falls angegeben, Format auf Gültigkeit prüfen:
+    if (trimmedVideo) {
       if (!isValidVideoUrl(trimmedVideo)) {
         setErrorMessage(
-          'Ungültige Video-URL: Erlaubt sind ausschließlich sichere https://-Links von YouTube (youtube.com, youtu.be) oder direkte .mp4 / .webm Videodateien.'
+          'Ungültige Video-URL: Erlaubt sind YouTube (auch Shorts), Streamable, direkte Videodateien (.mp4/.webm) oder Video-CDNs.'
         );
         return;
       }
@@ -489,8 +524,11 @@ export const SubmissionModal: React.FC = () => {
               <input
                 type="url"
                 value={videoUrl}
-                onChange={(e) => setVideoUrl(e.target.value)}
-                placeholder="Optional: https://... (.mp4, .webm oder YouTube-URL)"
+                onChange={(e) => {
+                  setVideoUrl(e.target.value);
+                  setErrorMessage(null);
+                }}
+                placeholder="Optional: https://... (YouTube, Shorts, Streamable oder .mp4)"
                 className="w-full rounded-xl border border-white/10 bg-zinc-900/80 px-3 py-2 font-mono text-[11px] text-zinc-200 placeholder-zinc-500 focus:border-cyan-400/60 focus:outline-none"
               />
             ) : (
@@ -506,13 +544,14 @@ export const SubmissionModal: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-dashed border-cyan-400/40 bg-zinc-900/70 py-3 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/10 transition"
+                    disabled={isProcessingVideo}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-dashed border-cyan-400/40 bg-zinc-900/70 py-3 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/10 transition disabled:opacity-50"
                   >
                     <Upload className="h-4 w-4" />
                     <span className="truncate">
                       {localVideoName
                         ? `Ausgewählt: ${localVideoName}`
-                        : 'Optional: Lokale .mp4 / .webm Datei auswählen'}
+                        : 'Optional: Lokale .mp4 / .webm Datei auswählen (max. 15MB)'}
                     </span>
                   </button>
                   {localVideoName && (
@@ -532,16 +571,60 @@ export const SubmissionModal: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {/* Video Processing Spinner */}
+            {isProcessingVideo && (
+              <div className="flex items-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-950/40 p-3 text-xs text-cyan-200">
+                <Loader2 className="h-4 w-4 animate-spin text-cyan-400 shrink-0" />
+                <span>Video wird für dauerhafte Wiedergabe vorbereitet... Bitte warten.</span>
+              </div>
+            )}
+
+            {/* Live Video Preview Box */}
+            {videoUrl && !isProcessingVideo && (
+              <div className="space-y-1.5 pt-1">
+                <div className="flex items-center justify-between font-mono text-[10px] text-zinc-400">
+                  <span className="flex items-center gap-1 font-bold text-emerald-400">
+                    <CheckCircle2 className="h-3 w-3" />
+                    <span>Video-Vorschau aktiv</span>
+                  </span>
+                  {localVideoName && (
+                    <span className="truncate max-w-[170px] text-zinc-400">
+                      {localVideoName}
+                    </span>
+                  )}
+                </div>
+                <div className="relative aspect-video w-full rounded-xl overflow-hidden border border-white/15 bg-black shadow-xl">
+                  <CutVideoPlayer
+                    videoUrl={videoUrl}
+                    autoPlay={false}
+                    muted={true}
+                    loop={false}
+                    controls={true}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Submit Button */}
         <button
           type="submit"
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-400 py-2.5 text-xs font-extrabold uppercase tracking-wider text-zinc-950 shadow-[0_0_20px_rgba(6,182,212,0.45)] transition hover:bg-cyan-300"
+          disabled={isProcessingVideo}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-400 py-2.5 text-xs font-extrabold uppercase tracking-wider text-zinc-950 shadow-[0_0_20px_rgba(6,182,212,0.45)] transition hover:bg-cyan-300 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <Send className="h-4 w-4" />
-          <span>Cut als PENDING einreichen</span>
+          {isProcessingVideo ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Video wird verarbeitet...</span>
+            </>
+          ) : (
+            <>
+              <Send className="h-4 w-4" />
+              <span>Cut als PENDING einreichen</span>
+            </>
+          )}
         </button>
       </form>
     </aside>
