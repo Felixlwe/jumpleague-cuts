@@ -37,7 +37,7 @@ try {
   console.warn('[Batch] Note: Could not load local all_thumbnails.json:', err.message);
 }
 
-function getDimensionsFromBlocks(blocks) {
+function getDimensions(blocks) {
   let minX = Infinity, maxX = -Infinity;
   let minY = Infinity, maxY = -Infinity;
   let minZ = Infinity, maxZ = -Infinity;
@@ -53,11 +53,18 @@ function getDimensionsFromBlocks(blocks) {
     if (z < minZ) minZ = z;
     if (z > maxZ) maxZ = z;
   }
-  if (!Number.isFinite(minX)) return { x: 10, y: 10, z: 10 };
+  if (!Number.isFinite(minX)) {
+    return { x: 10, y: 10, z: 10, isTall: false, isLong: false };
+  }
+  const dx = Math.max(1, maxX - minX + 1);
+  const dy = Math.max(1, maxY - minY + 1);
+  const dz = Math.max(1, maxZ - minZ + 1);
   return {
-    x: Math.max(1, maxX - minX + 1),
-    y: Math.max(1, maxY - minY + 1),
-    z: Math.max(1, maxZ - minZ + 1),
+    x: dx,
+    y: dy,
+    z: dz,
+    isTall: dy >= 18 && dy > Math.max(dx, dz) * 1.15,
+    isLong: Math.max(dx, dz) >= 24 && Math.max(dx, dz) > dy * 1.35,
   };
 }
 
@@ -76,195 +83,163 @@ function classifyModule(m) {
     totalBlocks++;
   }
 
-  const dim = getDimensionsFromBlocks(blocks);
-  const dx = dim.x;
-  const dy = dim.y;
-  const dz = dim.z;
-  const isTall = dy >= 18 && dy > Math.max(dx, dz) * 1.2;
-  const isLong = Math.max(dx, dz) >= 24 && Math.max(dx, dz) > dy * 1.35;
+  const dim = getDimensions(blocks);
+  const c = (...keys) => keys.reduce((sum, k) => sum + (counts[k] || 0), 0);
 
-  const getCount = (...keys) => keys.reduce((sum, k) => sum + (counts[k] || 0), 0);
-  const has = (...keys) => keys.some((k) => (counts[k] || 0) > 0);
+  // 1. Pop-Culture & Character builds
+  if (c('sponge', 'wet_sponge') > 500) return 'SpongeBob';
+  if (c('orange_terracotta', 'orange_wool', 'orange_concrete') > 80 && c('green_terracotta', 'lime_wool', 'green_wool') > 20 && dim.isTall) return 'Karotte';
+  if (c('blackstone', 'deepslate', 'coal_block') > 60 && c('fire', 'magma_block', 'lava') > 15 && dim.isLong) return 'Ghost Rider';
+  if (c('black_concrete') > 300 && c('light_gray_stained_glass_pane') > 150 && c('cyan_concrete') > 100) return 'Nintendo Switch';
+  if (c('yellow_concrete') > 500 && c('lime_concrete') > 300 && c('orange_concrete') > 200) return 'Bowser Kart';
+  if (c('red_wool', 'red_concrete') > 50 && c('white_wool', 'white_concrete', 'quartz_block') > 50 && c('black_wool', 'black_concrete') > 20 && !dim.isLong) return 'Pokeball';
 
-  // 1. Specific Character & Pop-Culture Detections
-  // SpongeBob
-  const spongeCount = getCount('sponge', 'wet_sponge');
-  if (spongeCount > 500 || (spongeCount > 40 && has('yellow_wool', 'brown_wool', 'white_wool'))) {
-    return 'SpongeBob';
+  // 2. Mining & Ores
+  const ores = c('iron_ore', 'coal_ore', 'gold_ore', 'diamond_ore', 'deepslate_iron_ore', 'deepslate_coal_ore', 'deepslate_diamond_ore', 'deepslate_gold_ore', 'copper_ore', 'lapis_ore', 'redstone_ore');
+  if (ores > 30 || c('raw_iron_block', 'raw_gold_block', 'raw_copper_block') > 10) {
+    if (c('diamond_ore', 'deepslate_diamond_ore', 'diamond_block') > 5) return 'Diamantmine';
+    if (c('gold_ore', 'deepslate_gold_ore', 'gold_block') > 5) return 'Goldmine';
+    return 'Erzmine';
   }
 
-  // Giant Carrot
-  const orangeCount = getCount('orange_terracotta', 'orange_wool', 'orange_concrete');
-  const greenTop = getCount('green_terracotta', 'lime_wool', 'green_wool', 'oak_leaves', 'spruce_leaves');
-  if (orangeCount > 80 && greenTop > 20 && isTall) {
-    return 'Karotte';
+  // 3. Foliage & Forest Types
+  const oakLeaves = c('oak_leaves', 'oak_wood', 'oak_log');
+  const birchLeaves = c('birch_leaves', 'birch_wood', 'birch_log');
+  const spruceLeaves = c('spruce_leaves', 'spruce_wood', 'spruce_log');
+  const jungleLeaves = c('jungle_leaves', 'jungle_wood', 'jungle_log');
+  const darkOakLeaves = c('dark_oak_leaves', 'dark_oak_wood', 'dark_oak_log');
+  const cherryLeaves = c('cherry_leaves', 'cherry_wood', 'cherry_log', 'pink_petals');
+  const mangrove = c('mangrove_leaves', 'mangrove_roots', 'muddy_mangrove_roots', 'mangrove_wood');
+  const azalea = c('azalea_leaves', 'flowering_azalea_leaves', 'azalea', 'flowering_azalea', 'moss_block', 'moss_carpet');
+
+  if (azalea > 35) return 'Azaleengarten';
+  if (cherryLeaves > 35) return dim.isTall ? 'Kirschblüten Pagode' : 'Kirschblüten Schrein';
+  if (mangrove > 35) return 'Mangrovenwald';
+  if (jungleLeaves > 120) return dim.isTall ? 'Urwald Riese' : 'Dschungelpfad';
+  if (spruceLeaves > 120) return 'Taiga Nadelwald';
+  if (darkOakLeaves > 120) return 'Finsterwald Dickicht';
+  if (birchLeaves > 120) return 'Birkenhain';
+  if (oakLeaves > 250) return dim.isTall ? 'Rieseneiche' : 'Baumkronen Pfad';
+
+  // 4. Aquatic & Water
+  const water = c('water');
+  const coral = c('tube_coral_block', 'brain_coral_block', 'bubble_coral_block', 'fire_coral_block', 'horn_coral_block');
+  const prismarine = c('prismarine', 'prismarine_bricks', 'dark_prismarine', 'sea_lantern');
+  if (coral > 18) return 'Korallenriff';
+  if (prismarine > 30) return dim.isTall ? 'Atlantis Turm' : 'Ozean Tempel';
+  if (water > 180) return dim.isTall ? 'Bergwasserfall' : 'Unterwasser Grotte';
+
+  // 5. Nether Dimensions
+  const warped = c('warped_planks', 'warped_stem', 'warped_hyphae', 'warped_nylium', 'shroomlight');
+  const crimson = c('crimson_planks', 'crimson_stem', 'crimson_hyphae', 'crimson_nylium');
+  const basalt = c('basalt', 'polished_basalt', 'smooth_basalt');
+  const soul = c('soul_sand', 'soul_soil', 'soul_fire', 'soul_lantern');
+  const netherBricks = c('nether_bricks', 'red_nether_bricks', 'nether_brick_fence');
+  const magma = c('magma_block', 'lava', 'fire');
+  if (warped > 25) return 'Wirrwald Dickicht';
+  if (crimson > 25) return 'Karmesin Wald';
+  if (netherBricks > 35) return 'Nether Festung';
+  if (soul > 25) return 'Seelensand Tal';
+  if (basalt > 35 || (magma > 18 && c('blackstone') > 35)) return 'Basalt Delta';
+  if (magma > 25) return 'Vulkan Kammer';
+
+  // 6. End Dimension
+  const purpur = c('purpur_block', 'purpur_pillar', 'purpur_slab', 'purpur_stairs');
+  const endStone = c('end_stone', 'end_stone_bricks', 'end_stone_brick_wall');
+  const chorus = c('chorus_plant', 'chorus_flower');
+  if (purpur > 20) return 'Purpur Palast';
+  if (endStone > 35) return dim.isLong ? 'Enderschiff' : 'Endstadt Turm';
+  if (chorus > 8) return 'Chorus Garten';
+
+  // 7. Cold & Ice
+  const ice = c('ice', 'packed_ice', 'blue_ice');
+  const snow = c('snow_block', 'snow', 'powder_snow');
+  if (ice > 35) return dim.isTall ? 'Frost Nadel' : 'Packeis Kluft';
+  if (snow > 40) return 'Schneegipfel';
+
+  // 8. Desert & Mesa
+  const sandstone = c('sandstone', 'cut_sandstone', 'smooth_sandstone', 'chiseled_sandstone');
+  const redSandstone = c('red_sandstone', 'cut_red_sandstone');
+  const terracotta = c('terracotta', 'orange_terracotta', 'red_terracotta', 'yellow_terracotta', 'brown_terracotta', 'white_terracotta');
+  if (sandstone > 50) return dim.isTall ? 'Wüsten Obelisk' : (sandstone > 120 ? 'Wüsten Pyramide' : 'Wüsten Oase');
+  if (redSandstone > 35) return 'Roter Canyon';
+  if (terracotta > 80) return dim.isTall ? 'Mesa Felsnadel' : (dim.isLong ? 'Mesa Schlucht' : 'Mesa Plateau');
+
+  // 9. Modern / Tech / Glass
+  const glass = c('glass', 'white_stained_glass', 'yellow_stained_glass', 'red_stained_glass', 'cyan_stained_glass', 'light_blue_stained_glass', 'purple_stained_glass', 'lime_stained_glass');
+  const glassPanes = c('glass_pane', 'white_stained_glass_pane', 'cyan_stained_glass_pane', 'red_stained_glass_pane');
+  if (glass > 60) return 'Buntglas Kathedrale';
+  if (glassPanes > 45) return 'Glasscheiben Grat';
+
+  const concrete = c('black_concrete', 'white_concrete', 'cyan_concrete', 'lime_concrete', 'yellow_concrete', 'red_concrete', 'blue_concrete');
+  if (concrete > 120) {
+    if (c('black_concrete') > 60 && c('white_concrete') > 60) return 'Schachbrett Arena';
+    return 'Neon Passage';
   }
 
-  // Ghost Rider / Burning Motorcycle
-  const blackstone = getCount('blackstone', 'polished_blackstone', 'deepslate', 'coal_block', 'obsidian');
-  const fireMagma = getCount('fire', 'magma_block', 'lava');
-  if (blackstone > 80 && fireMagma > 15 && isLong) {
-    return 'Ghost Rider';
+  // 10. Industrial, Copper, Chains & Iron
+  const copper = c('copper_block', 'cut_copper', 'exposed_copper', 'weathered_copper', 'oxidized_copper');
+  const iron = c('iron_block', 'iron_bars', 'chain', 'anvil', 'hopper');
+  if (copper > 25) return 'Kupfer Labor';
+  if (iron > 30) return dim.isTall ? 'Industriekran' : 'Schmiede Fabrik';
+
+  // 11. Castle, Dungeon & Stone
+  const stoneBricks = c('stone_bricks', 'mossy_stone_bricks', 'cracked_stone_bricks', 'chiseled_stone_bricks');
+  const cobble = c('cobblestone', 'mossy_cobblestone');
+  const deepslate = c('deepslate', 'cobbled_deepslate', 'deepslate_tiles', 'deepslate_bricks', 'polished_deepslate');
+  if (deepslate > 60) return 'Tiefenschiefer Gruft';
+  if (stoneBricks + cobble > 100) {
+    if (c('mossy_stone_bricks', 'mossy_cobblestone') > 25) return 'Moosstein Ruine';
+    return dim.isTall ? 'Burgturm' : (dim.isLong ? 'Festungsmauer' : 'Ritterburg');
   }
 
-  // Pokeball
-  const redCount = getCount('red_wool', 'red_concrete');
-  const whiteCount = getCount('white_wool', 'white_concrete', 'quartz_block');
-  const blackCount = getCount('black_wool', 'black_concrete');
-  if (redCount > 50 && whiteCount > 50 && blackCount > 20 && Math.abs(dx - dz) <= 6 && !isLong) {
-    return 'Pokeball';
-  }
+  // 12. Magic & Library
+  if (c('bookshelf', 'enchanting_table', 'lectern') > 12) return 'Magier Bibliothek';
+  if (c('amethyst_block', 'amethyst_cluster', 'budding_amethyst') > 12) return 'Kristall Geode';
+  if (c('sculk', 'sculk_catalyst', 'sculk_shrieker') > 12) return 'Antike Tiefen';
+  if (c('crying_obsidian', 'obsidian') > 20) return 'Obsidian Krater';
 
-  // Super Mario
-  const blueCount = getCount('blue_wool', 'blue_concrete');
-  const brownCount = getCount('brown_wool', 'brown_concrete');
-  if (redCount > 80 && blueCount > 50 && brownCount > 25) {
-    return 'Super Mario';
-  }
+  // 13. Village, Farm & Wood
+  if (c('hay_block', 'farmland', 'wheat', 'carrots') > 12) return 'Kornfeld Bauernhof';
+  if (c('honey_block', 'honeycomb_block', 'beehive') > 12) return 'Bienenstock';
+  if (c('slime_block') > 12) return 'Schleim Grotte';
+  if (c('bamboo', 'bamboo_planks', 'bamboo_mosaic') > 20) return 'Bambus Tempel';
+  if (c('mud_bricks', 'packed_mud') > 25) return 'Lehmziegel Dorf';
+  if (c('quartz_block', 'smooth_quartz', 'quartz_pillar') > 40) return 'Marmor Palast';
 
-  // Pikachu
-  const yellowCount = getCount('yellow_wool', 'yellow_concrete');
-  if (yellowCount > 120 && blackCount > 15 && redCount > 15 && redCount < 80) {
-    return 'Pikachu';
-  }
-
-  // 2. Structures, Vehicles & Architecture
-  // Hot Air Balloon (Heißluftballon)
-  const colorfulSphere = redCount + yellowCount + blueCount + getCount('lime_wool', 'purple_wool', 'orange_wool');
-  const burnerAndFence = getCount('fire', 'campfire', 'oak_fence', 'iron_bars', 'chain');
-  if (isTall && colorfulSphere > 180 && burnerAndFence > 8) {
-    return 'Heißluftballon';
-  }
-
-  // Pirate Ship / Ship (Piratenschiff)
-  const woodPlanks = getCount('oak_planks', 'spruce_planks', 'dark_oak_planks', 'birch_planks', 'jungle_planks');
-  const sails = getCount('white_wool', 'white_concrete', 'black_wool');
-  if (isLong && woodPlanks > 180 && sails > 35) {
-    return 'Piratenschiff';
-  }
-
-  // Windmill (Windmühle)
-  const millBlades = getCount('white_wool', 'oak_fence', 'iron_bars');
-  if (isTall && woodPlanks > 90 && millBlades > 40) {
-    return 'Alte Windmühle';
-  }
-
-  // Lighthouse (Leuchtturm)
-  const lightSource = getCount('sea_lantern', 'glowstone', 'lantern', 'redstone_lamp');
-  if (isTall && lightSource > 6 && (redCount > 40 || whiteCount > 80)) {
-    return 'Leuchtturm';
-  }
-
-  // Castle / Fortress
-  const stoneBricks = getCount('stone_bricks', 'mossy_stone_bricks', 'cracked_stone_bricks', 'chiseled_stone_bricks');
-  const cobble = getCount('cobblestone', 'mossy_cobblestone');
-  if (stoneBricks + cobble > 220) {
-    if (isTall) return 'Burgturm';
-    if (isLong) return 'Festungsmauer';
-    return 'Ritterburg';
-  }
-
-  // Cherry Blossom Pagoda / Shrine
-  const cherryCount = getCount('cherry_planks', 'cherry_leaves', 'cherry_log', 'cherry_wood', 'pink_petals');
-  if (cherryCount > 60 || getCount('pink_wool', 'pink_concrete') > 120) {
-    if (isTall) return 'Kirschblüten Pagode';
-    return 'Kirschblüten Schrein';
-  }
-
-  // Nether & Magma
-  const netherBricks = getCount('nether_bricks', 'red_nether_bricks', 'nether_brick_fence');
-  const crimson = getCount('crimson_planks', 'crimson_stem', 'crimson_hyphae', 'crimson_nylium');
-  const warped = getCount('warped_planks', 'warped_stem', 'warped_nylium', 'shroomlight');
-  if (warped > 40) return 'Wirrwald Insel';
-  if (crimson > 40) return 'Karmesin Wald';
-  if (netherBricks > 80) return 'Nether Festung';
-  if (fireMagma + getCount('basalt', 'blackstone') > 60) {
-    return isTall ? 'Vulkan Festung' : 'Basalt Delta';
-  }
-
-  // Ocean / Coral / Prismarine
-  const prismarine = getCount('prismarine', 'prismarine_bricks', 'dark_prismarine', 'sea_lantern');
-  const coral = getCount('tube_coral_block', 'brain_coral_block', 'bubble_coral_block', 'fire_coral_block', 'horn_coral_block');
-  if (coral > 25) return 'Korallenriff';
-  if (prismarine > 40) return isTall ? 'Atlantis Turm' : 'Ozean Tempel';
-
-  // Desert & Pyramid
-  const sandstone = getCount('sandstone', 'cut_sandstone', 'smooth_sandstone', 'red_sandstone', 'chiseled_sandstone');
-  const sand = getCount('sand', 'red_sand');
-  if (sandstone + sand > 90) {
-    if (isTall) return 'Wüsten Obelisk';
-    if (sandstone > 180) return 'Wüsten Pyramide';
-    return 'Wüsten Oase';
-  }
-
-  // Mesa & Terracotta Canyons
-  const terracotta = getCount('terracotta', 'orange_terracotta', 'red_terracotta', 'yellow_terracotta', 'white_terracotta', 'brown_terracotta');
-  if (terracotta > 120) {
-    if (isTall) return 'Mesa Felsnadel';
-    if (isLong) return 'Mesa Schlucht';
-    return 'Mesa Plateau';
-  }
-
-  // Ice & Snow
-  const iceSnow = getCount('ice', 'packed_ice', 'blue_ice', 'snow_block', 'snow', 'powder_snow');
-  if (iceSnow > 80) {
-    if (isTall) return 'Frost Nadel';
-    return 'Eis Gletscher';
-  }
-
-  // End Dimension
-  const endBlocks = getCount('end_stone', 'end_stone_bricks', 'purpur_block', 'purpur_pillar', 'chorus_plant', 'chorus_flower');
-  if (endBlocks > 40) {
-    return isLong ? 'Enderschiff' : 'Enderstadt';
-  }
-
-  // Industrial & Copper
-  const copper = getCount('copper_block', 'cut_copper', 'exposed_copper', 'weathered_copper', 'oxidized_copper');
-  const iron = getCount('iron_block', 'iron_bars', 'chain', 'anvil', 'hopper', 'cauldron');
-  if (copper + iron > 50) {
-    if (isTall) return 'Industriekran';
-    return 'Steampunk Fabrik';
-  }
-
-  // Bamboo & Dojo
-  const bamboo = getCount('bamboo_planks', 'bamboo_mosaic', 'bamboo_block');
-  if (bamboo > 30) return 'Bambus Tempel';
-
-  // Jungle & Vines
-  const jungle = getCount('jungle_planks', 'jungle_log', 'vine', 'moss_block', 'moss_carpet');
-  if (jungle > 60) {
-    return isTall ? 'Dschungel Baumhaus' : 'Dschungel Tempel';
-  }
-
-  // Deep Dark & Sculk
-  const sculk = getCount('sculk', 'sculk_catalyst', 'sculk_shrieker', 'sculk_sensor', 'echo_shard');
-  if (sculk > 15) return 'Antike Tiefen';
-
-  // Amethyst
-  const amethyst = getCount('amethyst_block', 'budding_amethyst', 'amethyst_cluster');
-  if (amethyst > 15) return 'Kristall Geode';
-
-  // Honey & Slime
-  const honey = getCount('honey_block', 'honeycomb_block', 'beehive', 'bee_nest');
-  if (honey > 15) return 'Goldener Bienenstock';
-  if (getCount('slime_block') > 15) return 'Schleim Grotte';
-
-  // Farm
-  const farm = getCount('hay_block', 'wheat', 'farmland', 'carrots', 'potatoes');
-  if (farm > 15) return 'Bauernhof';
-
-  // Wood & Forest
-  if (woodPlanks > 90) {
-    if (isLong) return 'Hängebrücke';
-    if (isTall) return 'Ausguckturm';
+  const wood = c('oak_planks', 'spruce_planks', 'dark_oak_planks', 'birch_planks', 'jungle_planks', 'acacia_planks');
+  if (wood > 60) {
+    if (c('acacia_planks') > 30) return 'Savannen Camp';
+    if (dim.isLong && c('white_wool') > 20) return 'Piratenschiff';
+    if (dim.isLong) return 'Hängebrücke';
+    if (dim.isTall) return 'Ausguckturm';
     return 'Holzfäller Hütte';
   }
 
-  // General shape fallbacks
-  if (isTall) return 'Himmelsturm';
-  if (isLong) return 'Skyblock Steg';
+  // 14. Stone & Mineral Specifics
+  if (c('smooth_stone', 'smooth_stone_slab') > 50) return 'Monolith Fels';
+  if (c('granite', 'polished_granite') > 40) return 'Granit Klippe';
+  if (c('diorite', 'polished_diorite') > 40) return 'Diorit Terrasse';
+  if (c('andesite', 'polished_andesite') > 40) return 'Andesit Kamm';
+  if (c('calcite') > 25) return 'Kalzit Grotte';
+  if (c('tuff') > 25) return 'Tuffstein Kessel';
 
-  return 'Abenteuer Insel';
+  // 15. Fine-grained Material Fallbacks (No more generic "Skyblock Steg" repetition!)
+  if (c('grass_block', 'dirt', 'podzol', 'coarse_dirt') > 80) return 'Erdhügel Pfad';
+  if (c('stone') > 80) return 'Felsengrat';
+  if (c('cobblestone') > 60) return 'Bruchstein Steg';
+  if (c('sand', 'gravel') > 50) return 'Dünengrat';
+  if (c('oak_log', 'spruce_log', 'birch_log') > 30) return 'Holzstamm Pfad';
+  if (c('iron_bars') > 20) return 'Eisengitter Steg';
+  if (c('chain') > 15) return 'Kettenbrücke';
+  if (c('ladder', 'scaffolding') > 15) return 'Klettersteig';
+  if (c('wool', 'carpet') > 40) return 'Farbfelder Pfad';
+  if (c('terracotta') > 40) return 'Terracotta Pfad';
+
+  if (dim.isTall) return 'Himmelsturm';
+  if (dim.isLong) return 'Himmelsbrücke';
+
+  return 'Abenteuerinsel';
 }
 
 async function runBatchUpdate() {
@@ -309,13 +284,9 @@ async function runBatchUpdate() {
         const { error: updErr } = await supabase.from('modules').update(updatePayload).eq('id', mod.id);
         if (!updErr) {
           updatedCount++;
-          if (updatedCount % 50 === 0 || optimalName === 'SpongeBob' || optimalName === 'Karotte' || optimalName === 'Ghost Rider') {
-            console.log(`[Batch Progress] ${updatedCount} updated. Modul #${mod.id}: "${mod.name}" -> "${optimalName}"`);
-          }
         }
       }
     }
-    console.log(`[Batch] Processed chunk ${i + fullChunk.length} / ${allModules.length}...`);
   }
 
   console.log(`\n========================================`);
