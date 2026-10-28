@@ -101,6 +101,9 @@ export function AutoModuleProcessor() {
               if (data?.name && typeof data.name === 'string' && data.name.trim().length > 0) {
                 finalAiName = data.name.trim();
               }
+            } else if (res.status === 429) {
+              console.warn('[AutoModuleProcessor] 429 Rate limit reached, pausing 60 seconds...');
+              await new Promise((r) => setTimeout(r, 60000));
             }
           } catch (err) {
             console.warn('[AutoModuleProcessor] AI naming request failed, proceeding with fallback:', err);
@@ -116,8 +119,8 @@ export function AutoModuleProcessor() {
           targetMod.thumbnailUrl ? undefined : thumbnailDataUrl
         );
 
-        // 5. 1.5 seconds cooldown between modules to respect rate limits
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        // 5. 12.5 seconds cooldown between modules to strictly respect the 5 RPM Free Tier limit
+        await new Promise((resolve) => setTimeout(resolve, 12500));
       } catch (err) {
         console.warn(`[AutoModuleProcessor] Exception processing module ${targetMod.id}:`, err);
       } finally {
