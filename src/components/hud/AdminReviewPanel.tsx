@@ -269,7 +269,7 @@ export const AdminReviewPanel: React.FC = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 font-mono text-[11px] font-bold text-purple-300">
               <Sparkles className="h-3.5 w-3.5 text-purple-400" />
-              <span>Vision KI (Gemini 2.0 Flash)</span>
+              <span>Vision KI (Gemini 3.5 Flash)</span>
             </div>
             <span
               className={`rounded-full px-2 py-0.5 text-[9px] font-bold font-mono tracking-wider ${
